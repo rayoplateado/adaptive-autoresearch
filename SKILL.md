@@ -1,5 +1,5 @@
 ---
-name: autodev-fitness
+name: adaptive-autoresearch
 description: >
   Autonomous code improvement loop that discovers what "excellent" means
   for any project by reading community skills from skills.sh, then iterates
@@ -13,7 +13,7 @@ description: >
   autoresearch. Works with any stack, any language, any project type.
 ---
 
-# autodev-fitness
+# adaptive-autoresearch
 
 An autonomous improvement loop with no built-in opinions. It discovers what
 "excellent" means for YOUR project by reading what the community already
@@ -275,7 +275,7 @@ strategies:
 Aggregate all extracted knowledge into a single fitness profile for this
 project. This is the configuration that drives the entire loop.
 
-### Build `autodev-fitness.yaml`
+### Build `.adaptive-autoresearch/fitness.yaml`
 
 ```yaml
 project:
@@ -305,7 +305,7 @@ metrics:
   # One entry per metric. Each must have a script or be marked manual.
   - name: <metric_name>
     source: <which skill suggested this>
-    script: .adaptive-autoresearch/metric-<name>.sh
+    script: .adaptive-autoresearch/metrics/metric-<name>.sh
     target: <number to reach>
     direction: <lower|higher>
   # Metrics that can't be scripted:
@@ -409,7 +409,7 @@ first, changes second. Always.
 
 ### What to generate
 
-Create a directory `.adaptive-autoresearch/` at the project root with one script
+Create `.adaptive-autoresearch/metrics/` at the project root with one script
 per metric. Each script:
 
 1. Takes no arguments (all config is inline)
@@ -419,7 +419,7 @@ per metric. Each script:
 5. Runs in under 30 seconds
 
 ```bash
-# Example: .adaptive-autoresearch/typescript-any-count.sh
+# Example: .adaptive-autoresearch/metrics/metric-typescript-any-count.sh
 #!/bin/bash
 # Counts explicit 'any' types in production code (excludes tests, generated)
 grep -rn --include="*.ts" --include="*.tsx" \
@@ -433,7 +433,7 @@ grep -rn --include="*.ts" --include="*.tsx" \
 ```
 
 ```bash
-# Example: .adaptive-autoresearch/auth-coverage.sh
+# Example: .adaptive-autoresearch/metrics/metric-auth-coverage.sh
 #!/bin/bash
 # Counts public query/mutation/action exports without auth checks
 python3 -c "
@@ -457,7 +457,7 @@ print(no_auth)
 ```
 
 ```bash
-# Example: .adaptive-autoresearch/collect-without-projection.sh
+# Example: .adaptive-autoresearch/metrics/metric-collect-without-projection.sh
 #!/bin/bash
 # Counts .collect() calls in query files without a subsequent .map()
 python3 -c "
@@ -475,19 +475,22 @@ print(count)
 
 ### Also generate a runner script
 
-Create `.adaptive-autoresearch/run-all.sh` that executes every metric script
-and outputs a JSON summary:
+Create `.adaptive-autoresearch/run-all.sh` that executes every metric
+script from the `metrics/` subdirectory and outputs a JSON summary:
 
 ```bash
 #!/bin/bash
-# Run all audit scripts and output JSON
+# Run all metric scripts and output JSON
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$(dirname "$SCRIPT_DIR")" || exit 1
+
 echo "{"
 first=true
-for script in .adaptive-autoresearch/metric-*.sh; do
+for script in "$SCRIPT_DIR"/metrics/metric-*.sh; do
   name=$(basename "$script" .sh | sed 's/^metric-//')
   value=$(bash "$script" 2>/dev/null)
   exit_code=$?
-  if [ $exit_code -ne 0 ]; then
+  if [ $exit_code -ne 0 ] || [ -z "$value" ]; then
     value="null"
   fi
   if [ "$first" = true ]; then first=false; else echo ","; fi
@@ -497,12 +500,18 @@ echo ""
 echo "}"
 ```
 
-### Naming convention
+### Directory structure
 
-Scripts follow the pattern:
-- `metric-<name>.sh` — automated metrics (must output a number)
-- `check-<name>.sh` — boolean checks (exit 0 = pass, exit 1 = fail)
-- `run-all.sh` — orchestrator that runs all metrics
+```
+.adaptive-autoresearch/
+├── fitness.yaml          # fitness profile (metrics, targets, sources)
+├── session.md            # living session document
+├── session.jsonl         # append-only iteration log
+├── run-all.sh            # orchestrator — runs all metrics, outputs JSON
+└── metrics/
+    ├── metric-<name>.sh  # automated metrics (outputs a number)
+    └── check-<name>.sh   # boolean checks (exit 0 = pass, exit 1 = fail)
+```
 
 ### Classify metrics before scripting
 
@@ -555,8 +564,8 @@ iteration zero.
 4. Record the raw numbers. This is **iteration zero** — the canonical
    "before" snapshot. Every future comparison uses these numbers.
 5. Compute total issues (sum of all metrics where lower = better).
-6. Write baseline to `autodev-session.jsonl` (include full script output).
-7. Write initial `autodev-session.md` with full context.
+6. Write baseline to `.adaptive-autoresearch/session.jsonl` (include full script output).
+7. Write initial `.adaptive-autoresearch/session.md` with full context.
 8. Show the user where the gaps are.
 
 **This baseline is sacred.** It was captured before any code changes,
@@ -631,12 +640,23 @@ A change is KEPT only if:
 
 Two files keep the session alive across context resets:
 
-### `autodev-session.jsonl`
+Everything lives inside `.adaptive-autoresearch/`:
 
-Append-only log. One JSON line per iteration with all metrics, the change
-description, status (kept/discarded), and reasoning.
+```
+.adaptive-autoresearch/
+├── fitness.yaml          # fitness profile (metrics, targets, sources)
+├── session.md            # living session document
+├── session.jsonl         # append-only iteration log
+├── run-all.sh            # orchestrator
+└── metrics/              # one script per metric
+```
 
-### `autodev-session.md`
+### `session.jsonl`
+
+Append-only log. One JSON line per iteration with all metric values, the
+change description, status (kept/discarded), and reasoning.
+
+### `session.md`
 
 Living document. Includes:
 - Project detection results
@@ -646,30 +666,30 @@ Living document. Includes:
 - Key wins and dead ends
 - Next priorities
 
-### `.adaptive-autoresearch/`
+### `metrics/`
 
-Directory of executable metric scripts. These persist across sessions
-and are the **canonical measurement apparatus**. A fresh agent:
+Executable metric scripts. These persist across sessions and are the
+**canonical measurement apparatus**. A fresh agent:
 
 1. Reads session.md and session.jsonl for context
-2. Runs `.adaptive-autoresearch/run-all.sh` to verify current state matches journal
+2. Runs `run-all.sh` to verify current state matches journal
 3. If numbers diverge from journal, re-baselines before continuing
 4. Does NOT regenerate scripts unless the user asks or a script is broken
 
-The scripts are part of the project now — they can be committed to git,
+The entire `.adaptive-autoresearch/` directory can be committed to git,
 run in CI, and reused independently of the agent.
 
 ---
 
 ## Resuming a session
 
-If `autodev-session.md` exists:
+If `.adaptive-autoresearch/session.md` exists:
 
 1. Read it — it has everything: project context, skill sources, metrics,
    current state, history
-2. Read `autodev-session.jsonl` for recent iterations
-3. Read `autodev-fitness.yaml` for the full profile
-4. **Run `.adaptive-autoresearch/run-all.sh`** to verify current state matches journal
+2. Read `session.jsonl` for recent iterations
+3. Read `fitness.yaml` for the full profile
+4. **Run `run-all.sh`** to verify current state matches journal
 5. If numbers match: continue the loop
 6. If numbers diverge: log the discrepancy, re-baseline, then continue
 
