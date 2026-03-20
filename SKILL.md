@@ -29,19 +29,38 @@ demand, not hardcoded.
 ## How it works — overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  1. DETECT     — What is this project? Stack, type, deps    │
+┌──────────────────────────────────────────────────────────────┐
+│  0. PREREQS    — Git clean, build passes, skills CLI check   │
+│  1. DETECT     — What is this project? Stack, type, deps     │
 │  2. DISCOVER   — Search skills.sh for relevant expertise     │
 │  3. FETCH      — Read the SKILL.md content from GitHub       │
 │  4. EXTRACT    — Pull quality criteria, rules, patterns out  │
 │  5. COMPOSE    — Build the fitness profile from all sources   │
-│  6. INSTRUMENT — Generate executable audit scripts per metric │
-│  7. BASELINE   — Run the scripts, record iteration zero      │
-│  8. LOOP       — Improve autonomously until targets met       │
-└─────────────────────────────────────────────────────────────┘
+│  6. INSTRUMENT — Generate audit scripts, validate them       │
+│  7. BASELINE   — Run scripts on UNCHANGED code = iteration 0 │
+│  8. LOOP       — Change → measure → keep/discard → repeat    │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-Steps 1-7 happen once. Step 8 runs forever (or until the user stops it).
+Steps 0-7 happen once, before any code changes.
+Step 8 runs until all targets are met or the user stops it.
+
+---
+
+## Phase 0: Prerequisites
+
+Before starting, verify:
+
+1. **`skills` CLI is available** — run `npx skills --help` or `skills --help`.
+   If not installed, the agent can still work but must skip Phase 2-3
+   (Discover/Fetch) and rely only on locally installed skills and its
+   own knowledge. Note this limitation in the session log.
+
+2. **Git is clean** — `git status` should show no uncommitted changes.
+   The loop makes commits and may need to revert. Dirty state = broken loop.
+
+3. **Build and tests pass** — verify before measuring anything.
+   If they don't pass, fix them first (this is iteration -1, not the loop).
 
 ---
 
@@ -283,18 +302,18 @@ loop:
   max_no_improvement: 10
 
 metrics:
-  # Aggregated from all sources, deduplicated, weighted by
-  # source authority (install count) and domain relevance
+  # One entry per metric. Each must have a script or be marked manual.
+  - name: <metric_name>
+    source: <which skill suggested this>
+    script: autodev-audit/metric-<name>.sh
+    target: <number to reach>
+    direction: <lower|higher>
+  # Metrics that can't be scripted:
   - name: <metric_name>
     source: <which skill>
-    script: autodev-audit/metric-<name>.sh  # executable source of truth
-    target: <threshold>
-    direction: <lower|higher>
-    weight: <calculated>
-    scriptable: true|false
-    # If scriptable: false, must explain why and define manual check criteria
-    manual_check: <optional, for non-scriptable metrics>
-  # ... all metrics from all skills
+    manual: true
+    manual_check: <how to verify manually>
+    target: <criteria>
 
 rules:
   # Hard rules aggregated from all skills
@@ -324,22 +343,41 @@ guardrails:
   - "Component refactoring must preserve visual output"
 ```
 
-### Weight calculation
+### Scoring
 
-Metrics are weighted by combining:
-- **Source authority**: skills with more installs have more weight
-- **Domain relevance**: a shadcn skill's opinions on design system matter
-  more than a generic coding skill's opinions
-- **User priority**: if the user says "I care most about performance",
-  boost performance metrics
+Don't invent composite scores. Use the raw numbers from the scripts.
+
+The fitness of a project is the set of metric values, not a single number.
+When comparing before/after, show the table:
+
+```
+Metric                          before   after    Δ
+typescript-any-count               38       0   -38 ✅
+public-functions-without-auth      16       0   -16 ✅
+tsc-errors                         55       0   -55 ✅
+TOTAL ISSUES                      109       0  -100%
+```
+
+If the user needs a single number, use **total issues** (sum of all
+metrics where direction = lower) and **reduction percentage**. This is
+honest and verifiable — anyone can run the scripts and get the same
+numbers.
+
+### Prioritization
+
+When deciding which metrics to tackle first, consider:
+- **User priority**: if the user says "I care most about security",
+  start there
+- **Source authority**: skills with more installs carry more weight
+- **Impact**: metrics with high counts have more room for improvement
 
 ### Present to the user
 
 Before starting the loop, show:
 - The skills that were discovered and what was extracted from each
-- The composed fitness profile (metrics, weights, targets)
+- The composed fitness profile (metrics, targets, priorities)
 - For each metric, whether it will be **scripted**, **semi-scripted**, or **manual**
-- Ask: "Does this look right? Anything to add, remove, or reweight?"
+- Ask: "Does this look right? Anything to add, remove, or reprioritize?"
 
 This is the user's first checkpoint. The second is after instrumentation
 (Phase 6), when the scripts are validated.
@@ -348,10 +386,11 @@ This is the user's first checkpoint. The second is after instrumentation
 
 ## Phase 6: Instrument
 
-**This phase is non-negotiable.** Every metric that CAN be measured by a
-script MUST have one before the loop starts. The agent's subjective
-assessment of "I counted 5 issues" is not acceptable — a script that
-outputs `5` is.
+**This phase is non-negotiable and must complete before ANY code changes.**
+
+Every metric that CAN be measured by a script MUST have one. The agent's
+subjective assessment of "I counted 5 issues" is not acceptable — a script
+that outputs `5` is.
 
 ### Why this exists
 
@@ -360,6 +399,13 @@ Without executable scripts, metrics drift:
 - "Fixed" can mean "I think I fixed it" instead of "the script now says 0"
 - Re-audits after changes miss regressions the agent doesn't think to check
 - The user can't independently verify claims
+
+### Why it must happen before code changes
+
+The scripts capture the "before" snapshot. If you create scripts AFTER
+making changes, you have no baseline — you'd need to go back to the
+original code to measure it, which is fragile and error-prone. Scripts
+first, changes second. Always.
 
 ### What to generate
 
@@ -506,13 +552,18 @@ iteration zero.
 2. **Execute `autodev-audit/run-all.sh`** to collect all metrics.
 3. Verify script results match reality — spot-check at least 2 metrics
    by manually confirming the number is correct.
-4. Compute composite fitness:
-   ```
-   fitness = Σ (weight_i × normalize(metric_i))
-   ```
-5. Write baseline to `autodev-session.jsonl` (include raw script output)
-6. Write initial `autodev-session.md` with full context
-7. Show the user where the gaps are
+4. Record the raw numbers. This is **iteration zero** — the canonical
+   "before" snapshot. Every future comparison uses these numbers.
+5. Compute total issues (sum of all metrics where lower = better).
+6. Write baseline to `autodev-session.jsonl` (include full script output).
+7. Write initial `autodev-session.md` with full context.
+8. Show the user where the gaps are.
+
+**This baseline is sacred.** It was captured before any code changes,
+using the validated scripts. If scripts are modified later (to fix false
+positives, add exclusions, etc.), the baseline MUST be re-captured by
+re-running the corrected scripts against the same code state. If the code
+has already changed, the old baseline is invalid — note this in the journal.
 
 ---
 
@@ -524,17 +575,19 @@ iteration cap is reached, or the user interrupts.
 ### Each iteration
 
 ```
-1. ANALYZE    — Read session.md, identify weakest area
+1. ANALYZE    — Read session.md, identify weakest metric
 2. FOCUS      — Load the relevant skill content for that area
 3. PLAN       — Using the skill's strategies, propose a change
 4. IMPLEMENT  — Make the change (max N files per iteration)
 5. VERIFY     — Constraints pass? (tests, build)
                 If fail → revert, log, next iteration
 6. MEASURE    — Execute autodev-audit/run-all.sh (deterministic!)
-7. EVALUATE   — Fitness improved? No dimension degraded >10%?
+7. EVALUATE   — Compare numbers to previous iteration:
+                - Target metric improved?
+                - No other metric got worse?
                 If yes → KEEP (git commit)
                 If no  → DISCARD (revert)
-8. JOURNAL    — Update session.md and session.jsonl
+8. JOURNAL    — Append full script output to session.jsonl
 9. REPEAT
 ```
 
@@ -560,9 +613,9 @@ knowledge loading.
 ### Keep/discard logic
 
 A change is KEPT only if:
-- All constraints pass
-- Composite fitness strictly improved
-- No individual metric degraded more than 10%
+- All constraints pass (tests, build)
+- At least one metric improved (number went toward its target)
+- No other metric got worse
 
 ### What the agent should NOT do
 
@@ -588,7 +641,8 @@ description, status (kept/discarded), and reasoning.
 Living document. Includes:
 - Project detection results
 - Skills that were discovered and what was extracted
-- Current fitness table (metric | current | target | script | status)
+- Current metric values (metric | baseline | current | target | script)
+- Total issues baseline vs current
 - Key wins and dead ends
 - Next priorities
 
