@@ -1,0 +1,664 @@
+---
+name: autodev-fitness
+description: >
+  Autonomous code improvement loop that discovers what "excellent" means
+  for any project by reading community skills from skills.sh, then iterates
+  toward that standard automatically. Use when the user says "optimize this
+  project", "polish this code", "autodev", "make this production-ready",
+  "I vibecoded this, clean it up", or wants autonomous iterative improvement.
+  Also use when building something new to high standards. The skill has zero
+  built-in domain knowledge — it discovers relevant expertise from the
+  skills.sh ecosystem at runtime, reads it, extracts quality criteria, and
+  uses it to drive an autonomous keep/discard loop inspired by Karpathy's
+  autoresearch. Works with any stack, any language, any project type.
+---
+
+# autodev-fitness
+
+An autonomous improvement loop with no built-in opinions. It discovers what
+"excellent" means for YOUR project by reading what the community already
+knows, then iterates until it gets there.
+
+The loop is simple: analyze → plan → change → verify → measure → keep or
+discard → repeat. What makes it powerful is that the quality criteria come
+from the collective knowledge of thousands of community skills, fetched on
+demand, not hardcoded.
+
+---
+
+## How it works — overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  1. DETECT     — What is this project? Stack, type, deps    │
+│  2. DISCOVER   — Search skills.sh for relevant expertise     │
+│  3. FETCH      — Read the SKILL.md content from GitHub       │
+│  4. EXTRACT    — Pull quality criteria, rules, patterns out  │
+│  5. COMPOSE    — Build the fitness profile from all sources   │
+│  6. INSTRUMENT — Generate executable audit scripts per metric │
+│  7. BASELINE   — Run the scripts, record iteration zero      │
+│  8. LOOP       — Improve autonomously until targets met       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Steps 1-7 happen once. Step 8 runs forever (or until the user stops it).
+
+---
+
+## Phase 1: Detect
+
+Scan the project. Identify:
+
+- **Type**: api, frontend, cli, bot, library, fullstack, mobile
+- **Language**: TypeScript, Python, Go, Rust, etc.
+- **Framework**: Next.js, NestJS, FastAPI, Express, Svelte, etc.
+- **UI library** (if frontend): shadcn, MUI, Chakra, Radix, etc.
+- **CSS approach**: Tailwind, CSS modules, styled-components, vanilla
+- **Test framework**: Jest, Vitest, pytest, Playwright, etc.
+- **Package manager**: npm, pnpm, yarn, pip, cargo, etc.
+- **Existing quality tools**: ESLint, Prettier, Semgrep, Storybook, etc.
+
+Detection is done by reading package.json, pyproject.toml, Cargo.toml,
+tsconfig, and scanning the file tree. No guessing — read the actual files.
+
+Save the detection results. They drive everything that follows.
+
+---
+
+## Phase 2: Discover
+
+Search for skills relevant to this project's stack using the `skills` CLI.
+This is the key innovation: the agent has no opinions of its own — it finds
+the best available community expertise.
+
+### How to search
+
+Use the `skills` CLI to discover relevant skills. Run multiple searches
+to cover the detected stack:
+
+```bash
+# Search by framework / stack keywords
+skills find next.js
+skills find react
+skills find tailwind
+skills find convex
+
+# Search by quality domain
+skills find security
+skills find testing
+skills find accessibility
+skills find performance
+
+# Search by architecture concern
+skills find "api design"
+skills find "design system"
+```
+
+Each `skills find <keyword>` returns matching skills with names, publishers,
+and install counts. Use this to build a candidate list.
+
+To inspect what skills a known repository offers without installing:
+
+```bash
+skills add vercel-labs/agent-skills -l    # list skills in repo
+skills add shadcn/ui -l                    # list skills in repo
+skills add supercent-io/skills-template -l
+```
+
+### Also check locally installed skills
+
+Before fetching anything remote, check what's already installed:
+
+```bash
+skills list              # project-level skills
+skills list -g           # global skills
+skills ls --json         # machine-readable for scripting
+```
+
+Already-installed skills are available at their local paths — no need to
+fetch them from GitHub. Read them directly.
+
+### What to look for
+
+Prioritize skills with:
+- High install counts (community-validated)
+- From known publishers (vercel-labs, anthropics, shadcn, expo, etc.)
+- Relevant to the detected stack
+- Actionable content (rules, patterns, checks — not just philosophy)
+
+### Aim for coverage across domains
+
+Don't just find 5 performance skills. Find skills across these domains:
+
+- **Stack best practices** (framework-specific patterns and anti-patterns)
+- **Design system / UI quality** (if frontend)
+- **Product completeness / UX** (if frontend)
+- **Security** (for any project with a network surface)
+- **Testing quality** (for any project with tests, or that should have them)
+- **Performance** (for any project where speed matters)
+- **Accessibility** (if frontend)
+- **Code architecture** (for any project)
+
+The goal is a well-rounded quality profile, not depth in one area.
+
+---
+
+## Phase 3: Fetch
+
+For each relevant skill found, get its SKILL.md content. Prefer local
+paths when available; fall back to GitHub raw URLs for remote-only skills.
+
+### Strategy: local first, remote second
+
+**Already installed skills** (found via `skills list` or `skills ls --json`):
+- Read directly from their local path — no network needed
+- Check both project-level and global paths
+
+**Not yet installed — two options**:
+
+1. **Install temporarily** (preferred for high-value skills):
+   ```bash
+   skills add owner/repo -s skill-name -g -y   # install globally, no prompt
+   ```
+   Then read from the local path. This also makes the skill available for
+   future sessions.
+
+2. **Fetch raw from GitHub** (for quick inspection without installing):
+   Given `owner/repo/skill-name`, try these URLs in order:
+   ```
+   https://raw.githubusercontent.com/{owner}/{repo}/main/skills/{skill-name}/SKILL.md
+   https://raw.githubusercontent.com/{owner}/{repo}/main/{skill-name}/SKILL.md
+   https://raw.githubusercontent.com/{owner}/{repo}/main/.claude/skills/{skill-name}/SKILL.md
+   ```
+
+Fetch only the SKILL.md — it contains the core knowledge. If the skill
+references files in `references/` that seem critical, fetch those too, but
+be selective. Most of the value is in the SKILL.md itself.
+
+### Context management
+
+Don't dump all skills into context at once. Keep them in working memory
+and load them selectively:
+
+- During **profile composition**: skim all skills to extract metrics/rules
+- During **the loop**: load only the skill relevant to the current
+  improvement focus (working on security? load the security skill content)
+
+This keeps context focused and avoids overwhelming the working set.
+
+---
+
+## Phase 4: Extract
+
+Read each fetched skill and extract structured quality criteria. This is
+where the agent's intelligence matters — it's reading natural language
+instructions and turning them into measurable quality signals.
+
+### What to extract from each skill
+
+**Hard rules** — things that should NEVER appear or ALWAYS be present:
+- "Never use inline styles" → metric: inline_styles_count, target: 0
+- "Always use TypeScript strict mode" → check: tsconfig strict = true
+- "Never use any type" → metric: any_type_count, target: 0
+- "All API routes must validate input" → check per route
+
+**Quality patterns** — things that constitute good practice:
+- "Components should be small and focused" → metric: max_component_lines
+- "Use design tokens instead of raw values" → metric: hardcoded_values_count
+- "Every list view should have search, pagination, and sorting"
+  → product completeness checks
+
+**Anti-patterns** — things to flag and fix:
+- "Avoid prop drilling" → metric: prop_drilling_depth
+- "Don't use index as key in lists" → grep-based check
+- "Avoid useEffect for derived state" → pattern detection
+
+**Architecture guidance** — structural patterns to enforce:
+- "Organize by feature, not by type" → directory structure check
+- "Use server components by default" (Next.js) → pattern check
+- "Separate data fetching from presentation" → component analysis
+
+### Extraction output
+
+For each skill, produce a structured summary:
+
+```yaml
+source: "vercel-labs/agent-skills/vercel-react-best-practices"
+installs: 228000
+metrics_extracted:
+  - name: server_components_ratio
+    check: "% of components that are server components"
+    target: 0.70
+    direction: higher
+    scriptable: true  # can be measured by grep/count
+  - name: use_client_count
+    check: "Number of unnecessary 'use client' directives"
+    target: 0
+    direction: lower
+    scriptable: true
+rules_extracted:
+  - "Prefer server components; add 'use client' only when needed"
+  - "Use Next.js Image component, never raw <img>"
+  - "Colocate data fetching with the component that needs it"
+anti_patterns:
+  - "useEffect for data fetching (use server components instead)"
+  - "Client-side redirect (use middleware instead)"
+strategies:
+  - "Convert client components to server components where possible"
+  - "Move data fetching to server components"
+  - "Replace <img> with next/image"
+```
+
+---
+
+## Phase 5: Compose
+
+Aggregate all extracted knowledge into a single fitness profile for this
+project. This is the configuration that drives the entire loop.
+
+### Build `autodev-fitness.yaml`
+
+```yaml
+project:
+  name: <detected>
+  type: <detected>
+  stack: <detected>
+  detected_at: <timestamp>
+
+sources:
+  # Track which skills contributed to this profile
+  - skill: "vercel-labs/agent-skills/vercel-react-best-practices"
+    installs: 228000
+    contributed: [server_components_ratio, use_client_count, ...]
+  - skill: "shadcn/ui/shadcn"
+    installs: 28000
+    contributed: [ui_library_coverage, ...]
+  - skill: "supercent-io/skills-template/security-best-practices"
+    installs: 13000
+    contributed: [vulnerability_score, ...]
+
+loop:
+  budget_seconds: 300
+  max_iterations: 50
+  max_no_improvement: 10
+
+metrics:
+  # Aggregated from all sources, deduplicated, weighted by
+  # source authority (install count) and domain relevance
+  - name: <metric_name>
+    source: <which skill>
+    script: autodev-audit/metric-<name>.sh  # executable source of truth
+    target: <threshold>
+    direction: <lower|higher>
+    weight: <calculated>
+    scriptable: true|false
+    # If scriptable: false, must explain why and define manual check criteria
+    manual_check: <optional, for non-scriptable metrics>
+  # ... all metrics from all skills
+
+rules:
+  # Hard rules aggregated from all skills
+  - rule: "Never use inline styles"
+    source: "vercel-labs/agent-skills/web-design-guidelines"
+  # ...
+
+strategies:
+  # Improvement strategies grouped by domain
+  performance:
+    - strategy: "..."
+      source: "..."
+  security:
+    - strategy: "..."
+      source: "..."
+  # ...
+
+constraints:
+  - name: existing_tests_pass
+    command: "<detected>"
+  - name: build_succeeds
+    command: "<detected>"
+
+guardrails:
+  - "Changes must not remove user-facing functionality"
+  - "Metric improvement must not game checks (no assert-true tests)"
+  - "Component refactoring must preserve visual output"
+```
+
+### Weight calculation
+
+Metrics are weighted by combining:
+- **Source authority**: skills with more installs have more weight
+- **Domain relevance**: a shadcn skill's opinions on design system matter
+  more than a generic coding skill's opinions
+- **User priority**: if the user says "I care most about performance",
+  boost performance metrics
+
+### Present to the user
+
+Before starting the loop, show:
+- The skills that were discovered and what was extracted from each
+- The composed fitness profile (metrics, weights, targets)
+- For each metric, whether it will be **scripted**, **semi-scripted**, or **manual**
+- Ask: "Does this look right? Anything to add, remove, or reweight?"
+
+This is the user's first checkpoint. The second is after instrumentation
+(Phase 6), when the scripts are validated.
+
+---
+
+## Phase 6: Instrument
+
+**This phase is non-negotiable.** Every metric that CAN be measured by a
+script MUST have one before the loop starts. The agent's subjective
+assessment of "I counted 5 issues" is not acceptable — a script that
+outputs `5` is.
+
+### Why this exists
+
+Without executable scripts, metrics drift:
+- The agent counts grep results differently between iterations
+- "Fixed" can mean "I think I fixed it" instead of "the script now says 0"
+- Re-audits after changes miss regressions the agent doesn't think to check
+- The user can't independently verify claims
+
+### What to generate
+
+Create a directory `autodev-audit/` at the project root with one script
+per metric. Each script:
+
+1. Takes no arguments (all config is inline)
+2. Outputs a **single number** to stdout (the metric value)
+3. Exits 0 on success, non-zero on measurement failure
+4. Is deterministic — same code = same number, every time
+5. Runs in under 30 seconds
+
+```bash
+# Example: autodev-audit/typescript-any-count.sh
+#!/bin/bash
+# Counts explicit 'any' types in production code (excludes tests, generated)
+grep -rn --include="*.ts" --include="*.tsx" \
+  ": any\b\|as any\b" \
+  src/ lib/ convex/ \
+  --exclude-dir=_generated \
+  --exclude-dir=node_modules \
+  --exclude-dir=__tests__ \
+  | grep -v "\.test\.\|\.spec\." \
+  | wc -l
+```
+
+```bash
+# Example: autodev-audit/auth-coverage.sh
+#!/bin/bash
+# Counts public query/mutation/action exports without auth checks
+python3 -c "
+import re, sys, glob
+
+no_auth = 0
+for f in glob.glob('convex/**/*.ts', recursive=True):
+    if '/_generated/' in f or '/__tests__/' in f:
+        continue
+    content = open(f).read()
+    for m in re.finditer(r'export const (\w+)\s*=\s*(query|mutation|action)\(', content):
+        block = content[m.start():m.start()+2000]
+        auth_fns = ['requireAuth','getAuthUserId','requirePermission',
+                     'requireBotOwnership','requireBotPermission',
+                     'requireOrgMembership','requireExecutionAccess',
+                     'requireScriptAccess','requireWorkflowOwnership']
+        if not any(fn in block for fn in auth_fns):
+            no_auth += 1
+print(no_auth)
+"
+```
+
+```bash
+# Example: autodev-audit/collect-without-projection.sh
+#!/bin/bash
+# Counts .collect() calls in query files without a subsequent .map()
+python3 -c "
+import re, glob
+count = 0
+for f in glob.glob('convex/domain/**/queries.ts', recursive=True):
+    content = open(f).read()
+    for m in re.finditer(r'export const (\w+)\s*=\s*query\(', content):
+        block = content[m.start():m.start()+3000]
+        if '.collect()' in block and '.map(' not in block and 'results.push' not in block:
+            count += 1
+print(count)
+"
+```
+
+### Also generate a runner script
+
+Create `autodev-audit/run-all.sh` that executes every metric script
+and outputs a JSON summary:
+
+```bash
+#!/bin/bash
+# Run all audit scripts and output JSON
+echo "{"
+first=true
+for script in autodev-audit/metric-*.sh; do
+  name=$(basename "$script" .sh | sed 's/^metric-//')
+  value=$(bash "$script" 2>/dev/null)
+  exit_code=$?
+  if [ $exit_code -ne 0 ]; then
+    value="null"
+  fi
+  if [ "$first" = true ]; then first=false; else echo ","; fi
+  printf '  "%s": %s' "$name" "$value"
+done
+echo ""
+echo "}"
+```
+
+### Naming convention
+
+Scripts follow the pattern:
+- `metric-<name>.sh` — automated metrics (must output a number)
+- `check-<name>.sh` — boolean checks (exit 0 = pass, exit 1 = fail)
+- `run-all.sh` — orchestrator that runs all metrics
+
+### Classify metrics before scripting
+
+For each metric in the fitness profile, classify it:
+
+| Classification | Action | Example |
+|---|---|---|
+| **Scriptable** | Generate a script | `any` count, tsc errors, auth coverage |
+| **Semi-scriptable** | Script with known false positives, document them | N+1 patterns, query projections |
+| **Manual** | Mark as `manual: true` in profile, don't pretend it's automated | "Architecture feels right" |
+
+**Every metric in the profile must have one of these classifications.**
+If a metric can't be scripted AND can't be manually verified with clear
+criteria, remove it — it's not a real metric.
+
+### Validate the scripts
+
+After generating all scripts, run them and verify:
+
+1. Each script exits 0 and outputs a number
+2. The numbers are plausible (not 0 when you know there are issues)
+3. Running the same script twice gives the same result
+4. Manually spot-check 2-3 metrics against reality
+
+If a script gives wrong results, **fix it before proceeding**. A broken
+script is worse than no script — it creates false confidence.
+
+### Present instrumentation to user
+
+Show the user:
+- List of metrics and their scripts
+- Which metrics are manual (and why)
+- Initial run results (pre-baseline, just to validate scripts work)
+- "Do these numbers look right?"
+
+This is the second user checkpoint. The first was the fitness profile
+(Phase 5). This one validates the measurement apparatus.
+
+---
+
+## Phase 7: Baseline
+
+Run the audit scripts against the current state of the code. This is
+iteration zero.
+
+1. Run constraint checks first (build, tests). Fix if broken.
+2. **Execute `autodev-audit/run-all.sh`** to collect all metrics.
+3. Verify script results match reality — spot-check at least 2 metrics
+   by manually confirming the number is correct.
+4. Compute composite fitness:
+   ```
+   fitness = Σ (weight_i × normalize(metric_i))
+   ```
+5. Write baseline to `autodev-session.jsonl` (include raw script output)
+6. Write initial `autodev-session.md` with full context
+7. Show the user where the gaps are
+
+---
+
+## Phase 8: The Autonomous Loop
+
+Now the agent runs. It does not stop until all targets are met, the
+iteration cap is reached, or the user interrupts.
+
+### Each iteration
+
+```
+1. ANALYZE    — Read session.md, identify weakest area
+2. FOCUS      — Load the relevant skill content for that area
+3. PLAN       — Using the skill's strategies, propose a change
+4. IMPLEMENT  — Make the change (max N files per iteration)
+5. VERIFY     — Constraints pass? (tests, build)
+                If fail → revert, log, next iteration
+6. MEASURE    — Execute autodev-audit/run-all.sh (deterministic!)
+7. EVALUATE   — Fitness improved? No dimension degraded >10%?
+                If yes → KEEP (git commit)
+                If no  → DISCARD (revert)
+8. JOURNAL    — Update session.md and session.jsonl
+9. REPEAT
+```
+
+### The MEASURE step is sacred
+
+**Always run the scripts.** Never eyeball a metric and declare it improved.
+The scripts are the single source of truth. If a script says the metric
+didn't improve, the metric didn't improve — even if the agent "knows"
+it made the right change. Fix the code, not the script.
+
+If during the loop a metric script is found to be wrong (false positives,
+missing cases), the agent MAY fix the script — but this counts as its own
+iteration with its own journal entry, and the baseline must be recalculated.
+
+### The FOCUS step is key
+
+This is what makes the meta-skill approach work. The agent doesn't try to
+hold all knowledge in context. When the weakest area is "design system",
+it re-reads the shadcn skill and the web-design-guidelines skill. When the
+weakest area is "security", it re-reads the security skill. Just-in-time
+knowledge loading.
+
+### Keep/discard logic
+
+A change is KEPT only if:
+- All constraints pass
+- Composite fitness strictly improved
+- No individual metric degraded more than 10%
+
+### What the agent should NOT do
+
+- Install skills into the project
+- Modify the fitness profile without user approval
+- Delete features to improve metrics
+- Game metrics (assert-true tests, hidden elements, ts-ignore)
+- Continue if stuck for max_no_improvement iterations
+
+---
+
+## Session Persistence
+
+Two files keep the session alive across context resets:
+
+### `autodev-session.jsonl`
+
+Append-only log. One JSON line per iteration with all metrics, the change
+description, status (kept/discarded), and reasoning.
+
+### `autodev-session.md`
+
+Living document. Includes:
+- Project detection results
+- Skills that were discovered and what was extracted
+- Current fitness table (metric | current | target | script | status)
+- Key wins and dead ends
+- Next priorities
+
+### `autodev-audit/`
+
+Directory of executable metric scripts. These persist across sessions
+and are the **canonical measurement apparatus**. A fresh agent:
+
+1. Reads session.md and session.jsonl for context
+2. Runs `autodev-audit/run-all.sh` to verify current state matches journal
+3. If numbers diverge from journal, re-baselines before continuing
+4. Does NOT regenerate scripts unless the user asks or a script is broken
+
+The scripts are part of the project now — they can be committed to git,
+run in CI, and reused independently of the agent.
+
+---
+
+## Resuming a session
+
+If `autodev-session.md` exists:
+
+1. Read it — it has everything: project context, skill sources, metrics,
+   current state, history
+2. Read `autodev-session.jsonl` for recent iterations
+3. Read `autodev-fitness.yaml` for the full profile
+4. **Run `autodev-audit/run-all.sh`** to verify current state matches journal
+5. If numbers match: continue the loop
+6. If numbers diverge: log the discrepancy, re-baseline, then continue
+
+Do NOT re-discover, re-fetch, or re-compose unless the user explicitly
+asks to refresh the knowledge sources. Do NOT regenerate scripts unless
+one is broken or the user requests it.
+
+---
+
+## Communicating with the user
+
+### At the start
+
+Show:
+- Detected stack
+- Skills discovered (names, install counts, what was extracted)
+- Composed fitness profile
+- Current gaps
+- "Does this look right?"
+
+### During the loop
+
+- Status table every 5 iterations
+- Immediate notification on significant wins
+- Notification when a metric crosses its target
+
+### On interruption
+
+- Finish current iteration cleanly
+- Full status table
+- Summary of wins and dead ends
+- "Continue, adjust, or stop?"
+
+### On completion
+
+- Before/after comparison
+- All kept changes summarized
+- Skills that contributed most
+- Suggested next steps
+
+---
+
+## References
+
+- `references/discovery-patterns.md` — How to search skills.sh effectively,
+  common skill repositories by domain, URL patterns for raw content
