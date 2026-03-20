@@ -305,7 +305,7 @@ metrics:
   # One entry per metric. Each must have a script or be marked manual.
   - name: <metric_name>
     source: <which skill suggested this>
-    script: autodev-audit/metric-<name>.sh
+    script: .adaptive-autoresearch/metric-<name>.sh
     target: <number to reach>
     direction: <lower|higher>
   # Metrics that can't be scripted:
@@ -409,7 +409,7 @@ first, changes second. Always.
 
 ### What to generate
 
-Create a directory `autodev-audit/` at the project root with one script
+Create a directory `.adaptive-autoresearch/` at the project root with one script
 per metric. Each script:
 
 1. Takes no arguments (all config is inline)
@@ -419,7 +419,7 @@ per metric. Each script:
 5. Runs in under 30 seconds
 
 ```bash
-# Example: autodev-audit/typescript-any-count.sh
+# Example: .adaptive-autoresearch/typescript-any-count.sh
 #!/bin/bash
 # Counts explicit 'any' types in production code (excludes tests, generated)
 grep -rn --include="*.ts" --include="*.tsx" \
@@ -433,7 +433,7 @@ grep -rn --include="*.ts" --include="*.tsx" \
 ```
 
 ```bash
-# Example: autodev-audit/auth-coverage.sh
+# Example: .adaptive-autoresearch/auth-coverage.sh
 #!/bin/bash
 # Counts public query/mutation/action exports without auth checks
 python3 -c "
@@ -457,7 +457,7 @@ print(no_auth)
 ```
 
 ```bash
-# Example: autodev-audit/collect-without-projection.sh
+# Example: .adaptive-autoresearch/collect-without-projection.sh
 #!/bin/bash
 # Counts .collect() calls in query files without a subsequent .map()
 python3 -c "
@@ -475,7 +475,7 @@ print(count)
 
 ### Also generate a runner script
 
-Create `autodev-audit/run-all.sh` that executes every metric script
+Create `.adaptive-autoresearch/run-all.sh` that executes every metric script
 and outputs a JSON summary:
 
 ```bash
@@ -483,7 +483,7 @@ and outputs a JSON summary:
 # Run all audit scripts and output JSON
 echo "{"
 first=true
-for script in autodev-audit/metric-*.sh; do
+for script in .adaptive-autoresearch/metric-*.sh; do
   name=$(basename "$script" .sh | sed 's/^metric-//')
   value=$(bash "$script" 2>/dev/null)
   exit_code=$?
@@ -549,7 +549,7 @@ Run the audit scripts against the current state of the code. This is
 iteration zero.
 
 1. Run constraint checks first (build, tests). Fix if broken.
-2. **Execute `autodev-audit/run-all.sh`** to collect all metrics.
+2. **Execute `.adaptive-autoresearch/run-all.sh`** to collect all metrics.
 3. Verify script results match reality — spot-check at least 2 metrics
    by manually confirming the number is correct.
 4. Record the raw numbers. This is **iteration zero** — the canonical
@@ -581,7 +581,7 @@ iteration cap is reached, or the user interrupts.
 4. IMPLEMENT  — Make the change (max N files per iteration)
 5. VERIFY     — Constraints pass? (tests, build)
                 If fail → revert, log, next iteration
-6. MEASURE    — Execute autodev-audit/run-all.sh (deterministic!)
+6. MEASURE    — Execute .adaptive-autoresearch/run-all.sh (deterministic!)
 7. EVALUATE   — Compare numbers to previous iteration:
                 - Target metric improved?
                 - No other metric got worse?
@@ -646,13 +646,13 @@ Living document. Includes:
 - Key wins and dead ends
 - Next priorities
 
-### `autodev-audit/`
+### `.adaptive-autoresearch/`
 
 Directory of executable metric scripts. These persist across sessions
 and are the **canonical measurement apparatus**. A fresh agent:
 
 1. Reads session.md and session.jsonl for context
-2. Runs `autodev-audit/run-all.sh` to verify current state matches journal
+2. Runs `.adaptive-autoresearch/run-all.sh` to verify current state matches journal
 3. If numbers diverge from journal, re-baselines before continuing
 4. Does NOT regenerate scripts unless the user asks or a script is broken
 
@@ -669,7 +669,7 @@ If `autodev-session.md` exists:
    current state, history
 2. Read `autodev-session.jsonl` for recent iterations
 3. Read `autodev-fitness.yaml` for the full profile
-4. **Run `autodev-audit/run-all.sh`** to verify current state matches journal
+4. **Run `.adaptive-autoresearch/run-all.sh`** to verify current state matches journal
 5. If numbers match: continue the loop
 6. If numbers diverge: log the discrepancy, re-baseline, then continue
 

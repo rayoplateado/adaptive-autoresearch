@@ -28,10 +28,10 @@ Steps 0–7 happen once, before any code changes. Step 8 runs until all targets 
 
 **Adaptive.** The skill has no hardcoded rules. It discovers what matters for YOUR project by searching community skills relevant to your stack. A Next.js app gets React best practices and accessibility checks. A Python API gets security patterns and test coverage rules. Same skill, different expertise.
 
-**Deterministic measurement.** Every metric has an executable script (`autodev-audit/metric-*.sh`) that outputs a single number. The agent never eyeballs a result — the scripts are the single source of truth. Run them yourself:
+**Deterministic measurement.** Every metric has an executable script (`.adaptive-autoresearch/metric-*.sh`) that outputs a single number. The agent never eyeballs a result — the scripts are the single source of truth. Run them yourself:
 
 ```bash
-bash autodev-audit/run-all.sh
+bash .adaptive-autoresearch/run-all.sh
 ```
 
 **Honest scoring.** No invented composite scores. Raw issue counts, before and after:
@@ -73,8 +73,8 @@ After a session, your project has:
 
 | File | Purpose |
 |---|---|
-| `autodev-audit/metric-*.sh` | Deterministic scripts measuring each quality metric |
-| `autodev-audit/run-all.sh` | Runs all metrics, outputs JSON |
+| `.adaptive-autoresearch/metric-*.sh` | Deterministic scripts measuring each quality metric |
+| `.adaptive-autoresearch/run-all.sh` | Runs all metrics, outputs JSON |
 | `autodev-fitness.yaml` | The fitness profile (metrics, targets, sources) |
 | `autodev-session.md` | Living session document with current state |
 | `autodev-session.jsonl` | Append-only log of every iteration |
