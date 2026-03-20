@@ -15,7 +15,7 @@ Works with any stack, any language, any agent.
 │  2. DISCOVER   — Search skills.sh for relevant expertise     │
 │  3. FETCH      — Read the SKILL.md content from GitHub       │
 │  4. EXTRACT    — Pull quality criteria, rules, patterns out  │
-│  5. COMPOSE    — Build the fitness profile from all sources   │
+│  5. COMPOSE    — Build the fitness profile from all sources  │
 │  6. INSTRUMENT — Generate audit scripts, validate them       │
 │  7. BASELINE   — Run scripts on UNCHANGED code = iteration 0 │
 │  8. LOOP       — Change → measure → keep/discard → repeat    │
