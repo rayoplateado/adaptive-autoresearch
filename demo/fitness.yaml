@@ -1,0 +1,193 @@
+project:
+  name: acme-dashboard
+  type: frontend
+  stack:
+    language: TypeScript
+    framework: React 19 + Vite
+    ui_library: shadcn/ui
+    css: Tailwind CSS v4
+    backend: Convex
+    package_manager: npm
+    test_framework: none (will add vitest)
+    quality_tools: [tsc]
+  detected_at: "2025-06-15T10:23:00Z"
+
+sources:
+  - skill: "vercel-labs/agent-skills/nextjs-react-best-practices"
+    installs: 228000
+    contributed: [typescript-any-count, use-effect-for-derived-state, raw-img-tags]
+  - skill: "shadcn/ui/shadcn"
+    installs: 28000
+    contributed: [hardcoded-color-values, design-token-coverage]
+  - skill: "pbakaus/impeccable/impeccable"
+    installs: 15000
+    contributed: [visual-spacing-consistency, visual-hierarchy, responsive-breakpoints]
+  - skill: "supercent-io/skills-template/security-best-practices"
+    installs: 13000
+    contributed: [xss-vulnerable-patterns, unvalidated-inputs]
+  - skill: "currents-dev/playwright-best-practices-skill/playwright-best-practices"
+    installs: 8000
+    contributed: [test-coverage]
+  - skill: "local/experie-design-system"
+    installs: local
+    contributed: [visual-token-compliance]
+
+loop:
+  budget_seconds: 600
+  max_iterations: 50
+  max_no_improvement: 10
+
+metrics:
+  # === DIRECT ===
+  - name: typescript-any-count
+    source: "vercel-labs/agent-skills/nextjs-react-best-practices"
+    classification: direct
+    script: .adaptive-autoresearch/metrics/metric-typescript-any-count.sh
+    target: 0
+    direction: lower
+    deterministic: true
+    tolerance: 0
+
+  - name: tsc-errors
+    source: detected
+    classification: direct
+    script: .adaptive-autoresearch/metrics/metric-tsc-errors.sh
+    target: 0
+    direction: lower
+    deterministic: true
+    tolerance: 0
+
+  - name: hardcoded-color-values
+    source: "shadcn/ui/shadcn"
+    classification: direct
+    script: .adaptive-autoresearch/metrics/metric-hardcoded-color-values.sh
+    target: 0
+    direction: lower
+    deterministic: true
+    tolerance: 0
+
+  - name: console-log-count
+    source: "vercel-labs/agent-skills/nextjs-react-best-practices"
+    classification: direct
+    script: .adaptive-autoresearch/metrics/metric-console-log-count.sh
+    target: 0
+    direction: lower
+    deterministic: true
+    tolerance: 0
+
+  - name: useeffect-derived-state
+    source: "vercel-labs/agent-skills/nextjs-react-best-practices"
+    classification: direct
+    script: .adaptive-autoresearch/metrics/metric-useeffect-derived-state.sh
+    target: 0
+    direction: lower
+    deterministic: true
+    tolerance: 0
+
+  # === PROXY ===
+  - name: oversized-components
+    source: "vercel-labs/agent-skills/nextjs-react-best-practices"
+    classification: proxy
+    proxy_for: "Component cohesion and single-responsibility"
+    script: .adaptive-autoresearch/metrics/metric-oversized-components.sh
+    target: 0
+    direction: lower
+    deterministic: true
+    tolerance: 0
+
+  - name: prop-heavy-components
+    source: "vercel-labs/agent-skills/nextjs-react-best-practices"
+    classification: proxy
+    proxy_for: "Prop drilling / poor component API design"
+    script: .adaptive-autoresearch/metrics/metric-prop-heavy-components.sh
+    target: 0
+    direction: lower
+    deterministic: true
+    tolerance: 0
+
+  # === TOOL-BACKED VISUAL ===
+  - name: accessibility-violations
+    source: "supercent-io/skills-template/security-best-practices"
+    classification: tool-visual
+    script: .adaptive-autoresearch/metrics/metric-accessibility-violations.sh
+    target: 0
+    direction: lower
+    deterministic: true
+    tolerance: 0
+
+  - name: lighthouse-performance
+    source: detected
+    classification: tool-visual
+    script: .adaptive-autoresearch/metrics/metric-lighthouse-performance.sh
+    target: 90
+    direction: higher
+    deterministic: true
+    tolerance: 0
+
+  # === VISUAL (LLM-judged) ===
+  - name: visual-spacing-consistency
+    source: "pbakaus/impeccable/impeccable"
+    classification: visual
+    script: .adaptive-autoresearch/metrics/metric-visual-spacing-consistency.sh
+    target: 0
+    direction: lower
+    deterministic: false
+    tolerance: 1
+    rubric_summary: "Count elements with spacing not on 4px grid"
+
+  - name: visual-hierarchy
+    source: "pbakaus/impeccable/impeccable"
+    classification: visual
+    script: .adaptive-autoresearch/metrics/metric-visual-hierarchy.sh
+    target: 0
+    direction: lower
+    deterministic: false
+    tolerance: 1
+    rubric_summary: "Count sections with unclear heading/body hierarchy"
+
+  - name: responsive-breakpoints
+    source: "pbakaus/impeccable/impeccable"
+    classification: visual
+    script: .adaptive-autoresearch/metrics/metric-responsive-breakpoints.sh
+    target: 0
+    direction: lower
+    deterministic: false
+    tolerance: 1
+    rubric_summary: "Count layout issues at 375px, 768px, 1280px viewports"
+
+rules:
+  - rule: "Never use inline styles — use Tailwind classes or design tokens"
+    source: "shadcn/ui/shadcn"
+  - rule: "Never use raw <img> — use optimized image component"
+    source: "vercel-labs/agent-skills/nextjs-react-best-practices"
+  - rule: "All user inputs must be validated before processing"
+    source: "supercent-io/skills-template/security-best-practices"
+  - rule: "Use design tokens (CSS variables) not raw color/spacing values"
+    source: "shadcn/ui/shadcn"
+
+strategies:
+  types:
+    - strategy: "Replace `: any` with proper interfaces extracted from usage"
+      source: "vercel-labs/agent-skills/nextjs-react-best-practices"
+  ui_quality:
+    - strategy: "Replace hardcoded colors with Tailwind theme tokens"
+      source: "shadcn/ui/shadcn"
+    - strategy: "Fix spacing by replacing arbitrary values with Tailwind spacing scale"
+      source: "pbakaus/impeccable/impeccable"
+  architecture:
+    - strategy: "Split oversized components into composition of smaller ones"
+      source: "vercel-labs/agent-skills/nextjs-react-best-practices"
+    - strategy: "Extract shared props into context or composition patterns"
+      source: "vercel-labs/agent-skills/nextjs-react-best-practices"
+
+constraints:
+  - name: build_succeeds
+    command: "npm run build"
+  - name: tsc_passes
+    command: "npx tsc --noEmit"
+
+guardrails:
+  - "Changes must not remove user-facing functionality"
+  - "Metric improvement must not game checks (no ts-ignore, no hidden elements)"
+  - "Component refactoring must preserve visual output"
+  - "Visual metrics use ±1 tolerance — don't chase noise"

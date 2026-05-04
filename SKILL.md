@@ -306,18 +306,34 @@ loop:
   max_no_improvement: 10
 
 metrics:
-  # One entry per metric. Each must have a script or be marked manual.
+  # One entry per metric. Each must have a script.
   - name: <metric_name>
     source: <which skill suggested this>
+    classification: direct  # direct | proxy | visual | tool-visual | semi-scriptable
     script: .adaptive-autoresearch/metrics/metric-<name>.sh
     target: <number to reach>
     direction: <lower|higher>
-  # Metrics that can't be scripted:
+    deterministic: true  # false for LLM-judged visual metrics
+    tolerance: 0  # ±N tolerance for keep/discard (use ±1 for non-deterministic)
+  # Proxy metrics — document what they approximate:
   - name: <metric_name>
     source: <which skill>
-    manual: true
-    manual_check: <how to verify manually>
-    target: <criteria>
+    classification: proxy
+    proxy_for: <what this really measures>
+    script: .adaptive-autoresearch/metrics/metric-<name>.sh
+    target: <number>
+    direction: <lower|higher>
+    deterministic: true
+  # Visual metrics — LLM-judged via screenshots:
+  - name: <metric_name>
+    source: <which skill>
+    classification: visual
+    script: .adaptive-autoresearch/metrics/metric-<name>.sh
+    target: <number>
+    direction: <lower|higher>
+    deterministic: false
+    tolerance: 1
+    rubric_summary: "<what the vision analysis checks>"
 
 rules:
   # Hard rules aggregated from all skills
@@ -523,13 +539,50 @@ For each metric in the fitness profile, classify it:
 
 | Classification | Action | Example |
 |---|---|---|
-| **Scriptable** | Generate a script | `any` count, tsc errors, auth coverage |
+| **Direct** | Script measures exactly what you want | `any` count, tsc errors, eslint violations, dead imports |
+| **Proxy** | Script measures something that correlates with the real concern | Components >6 props (proxy for prop drilling), files >300 LOC (proxy for component cohesion) |
+| **Visual** | Script generates a screenshot; agent evaluates with a rubric via vision | Spacing consistency, visual hierarchy, responsive layout |
+| **Tool-backed visual** | Script runs a deterministic visual tool | axe-core (accessibility), pixelmatch (regression), Lighthouse (performance score) |
 | **Semi-scriptable** | Script with known false positives, document them | N+1 patterns, query projections |
-| **Manual** | Mark as `manual: true` in profile, don't pretend it's automated | "Architecture feels right" |
 
-**Every metric in the profile must have one of these classifications.**
-If a metric can't be scripted AND can't be manually verified with clear
-criteria, remove it — it's not a real metric.
+**Every metric must have one of these classifications.** There is no
+`manual` classification — if a metric can't be scripted directly, find a
+proxy or visual approach. If neither exists, it's not a metric the loop
+can use — drop it.
+
+### Deciding what to script
+
+**Script it directly if:** the metric reduces to counting pattern
+occurrences in source files, running an existing tool (tsc, eslint,
+pytest, knip, madge) and parsing its output, or checking file/directory
+structure.
+
+**Use a proxy if:** measuring the real thing requires understanding code
+semantics (data flow, component relationships, architecture quality).
+Find something grep-able that correlates:
+
+| You want to measure | Proxy metric | Script approach |
+|---|---|---|
+| Prop drilling | Components with >N props | `grep -c "props\." \| threshold` |
+| Component cohesion | Files >300 LOC in components/ | `find + wc -l + awk` |
+| Circular dependencies | Cycle count | `madge --circular src/ \| wc -l` |
+| Dead code | Unused exports | `knip --reporter json \| jq` |
+| Test quality | Line coverage % | `vitest --coverage --reporter=json \| jq` |
+| API consistency | Naming pattern violations | `grep -P` on route/handler exports |
+
+Proxies are imperfect — a 400-line component might be fine, a 100-line
+one might be terrible. But proxies let the loop iterate autonomously,
+which beats waiting for a human to eyeball it.
+
+**Use visual if:** the quality dimension is inherently visual — spacing,
+alignment, color, hierarchy, responsive behavior. See "Visual metrics"
+below.
+
+**Don't measure it at all if:** you can't find a direct script, a
+reasonable proxy, or a visual approach. A metric that can't be automated
+is a metric the loop can't use. Note it in session.md as a "human
+review item" for after the loop finishes, but don't let it block
+autonomous iteration.
 
 ### Validate the scripts
 
@@ -543,11 +596,143 @@ After generating all scripts, run them and verify:
 If a script gives wrong results, **fix it before proceeding**. A broken
 script is worse than no script — it creates false confidence.
 
+### Visual metrics
+
+For UI/frontend projects, visual quality is often the primary concern.
+Visual metrics let the loop evaluate design quality autonomously using
+screenshots + vision analysis.
+
+#### How visual metrics work
+
+```
+Script generates screenshot → Agent evaluates via vision → Score emitted
+```
+
+A visual metric script does two things:
+
+1. **Captures a screenshot** (via Playwright, Puppeteer, or similar)
+2. **Outputs a `VISUAL_REVIEW` directive** for the agent to evaluate
+
+```bash
+# Example: .adaptive-autoresearch/metrics/metric-spacing-consistency.sh
+#!/bin/bash
+# Requires: dev server running, playwright installed
+URL="${PREVIEW_URL:-http://localhost:5173}"
+
+# Capture screenshots at key breakpoints
+npx playwright screenshot "$URL/components/card" \
+  --output .adaptive-autoresearch/screenshots/card-desktop.png \
+  --viewport-size="1280,720" 2>/dev/null
+
+npx playwright screenshot "$URL/components/card" \
+  --output .adaptive-autoresearch/screenshots/card-mobile.png \
+  --viewport-size="375,667" 2>/dev/null
+
+# Emit visual review directive
+cat <<EOF
+VISUAL_REVIEW
+screenshots:
+  - .adaptive-autoresearch/screenshots/card-desktop.png
+  - .adaptive-autoresearch/screenshots/card-mobile.png
+rubric:
+  - criterion: spacing_consistency
+    question: "Are all spacing values consistent multiples of 4px? Count violations."
+  - criterion: alignment
+    question: "Are all elements properly aligned to a grid? Count misalignments."
+  - criterion: hierarchy
+    question: "Is the visual hierarchy clear — headings > body > secondary? Score 0-3 (3=clear)."
+  - criterion: responsive
+    question: "Does the mobile version adapt correctly without overflow or truncation? Score 0-3."
+scoring: sum_violations
+EOF
+```
+
+#### How the agent processes `VISUAL_REVIEW`
+
+When `run-all.sh` encounters a script that outputs a `VISUAL_REVIEW`
+block instead of a plain number:
+
+1. Parse the rubric from the output
+2. Load each screenshot using vision
+3. Evaluate each criterion against the screenshot
+4. Emit a single number per the `scoring` method:
+   - `sum_violations`: count of issues found (lower = better)
+   - `sum_scores`: sum of scores (higher = better, inverted for the loop)
+
+The agent acts as the measuring instrument here. This is inherently less
+deterministic than grep — the same screenshot may get a score of 3 one
+run and 4 the next. To manage this:
+
+- **Rubric must be specific.** "Is the spacing good?" → bad. "Count
+  elements where spacing is not 4/8/12/16/24/32px" → good.
+- **Flag as `deterministic: false`** in fitness.yaml. The loop uses a
+  tolerance of ±1 when deciding keep/discard for these metrics.
+- **Prefer tool-backed visual over LLM-judged** when possible:
+  - axe-core for accessibility → deterministic
+  - pixelmatch for visual regression → deterministic
+  - Lighthouse for performance scores → deterministic
+  - LLM vision for aesthetic quality → non-deterministic, use rubric
+
+#### Tool-backed visual metrics (deterministic)
+
+These use existing tools and produce exact numbers:
+
+```bash
+# Example: .adaptive-autoresearch/metrics/metric-accessibility-violations.sh
+#!/bin/bash
+URL="${PREVIEW_URL:-http://localhost:5173}"
+npx @axe-core/cli "$URL" --reporter json 2>/dev/null \
+  | jq '[.[].violations | length] | add // 0'
+```
+
+```bash
+# Example: .adaptive-autoresearch/metrics/metric-visual-regression.sh
+#!/bin/bash
+# Compare current screenshots against approved baselines
+DIFF_COUNT=0
+for baseline in .adaptive-autoresearch/baselines/*.png; do
+  name=$(basename "$baseline")
+  current=".adaptive-autoresearch/screenshots/$name"
+  if [ -f "$current" ]; then
+    # pixelmatch outputs diff pixel count
+    diff=$(npx pixelmatch "$baseline" "$current" /dev/null 2>/dev/null)
+    if [ "$diff" -gt 100 ]; then
+      DIFF_COUNT=$((DIFF_COUNT + 1))
+    fi
+  fi
+done
+echo "$DIFF_COUNT"
+```
+
+```bash
+# Example: .adaptive-autoresearch/metrics/metric-lighthouse-performance.sh
+#!/bin/bash
+URL="${PREVIEW_URL:-http://localhost:5173}"
+npx lighthouse "$URL" --output=json --quiet --chrome-flags="--headless" 2>/dev/null \
+  | jq '.categories.performance.score * 100 | floor'
+```
+
+Tool-backed visual metrics are the best of both worlds: they measure
+visual/UX quality AND are perfectly deterministic. Prefer them over
+LLM-judged visual metrics whenever a tool exists for the dimension.
+
+#### Prerequisites for visual metrics
+
+The agent must ensure:
+- A preview server is running (or can be started) at `$PREVIEW_URL`
+- Playwright/Puppeteer is installed for screenshots
+- For tool-backed: the relevant tools are installed (axe-core, lighthouse)
+- Screenshots directory exists: `.adaptive-autoresearch/screenshots/`
+
+If the project has Storybook, use it — individual component stories give
+isolated, reproducible screenshots. If not, use route-level screenshots
+of the running app.
+
 ### Present instrumentation to user
 
 Show the user:
 - List of metrics and their scripts
-- Which metrics are manual (and why)
+- Classification of each (direct, proxy, visual, tool-backed visual)
 - Initial run results (pre-baseline, just to validate scripts work)
 - "Do these numbers look right?"
 
@@ -783,7 +968,15 @@ knowledge loading, scoped to the current group's domain.
 A change is KEPT only if:
 - All constraints pass (tests, build)
 - At least one metric improved (number went toward its target)
-- No other metric got worse
+- No other metric got worse beyond its tolerance
+
+For `deterministic: true` metrics (direct, proxy, tool-backed visual),
+tolerance is 0 — any regression means discard.
+
+For `deterministic: false` metrics (LLM-judged visual), use the
+`tolerance` value from fitness.yaml (default ±1). A visual metric that
+goes from 5 to 6 violations when tolerance is 1 is not treated as a
+regression — it's within noise. But 5 to 8 is a real regression.
 
 ### Re-evaluation checkpoints
 

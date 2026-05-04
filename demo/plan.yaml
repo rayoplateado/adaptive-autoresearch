@@ -1,0 +1,188 @@
+created_at: "2025-06-15T10:48:00Z"
+last_evaluated_at: "2025-06-15T12:35:00Z"
+
+groups:
+  - name: types-and-strictness
+    domain: types
+    metrics: [typescript-any-count, tsc-errors]
+    source_skill: "vercel-labs/agent-skills/nextjs-react-best-practices"
+    status: completed
+    issues:
+      - file: src/hooks/useAnalytics.ts
+        line: 12
+        description: "data: any — should be AnalyticsResponse"
+        status: fixed
+      - file: src/hooks/useAnalytics.ts
+        line: 34
+        description: "result as any — cast to MetricData[]"
+        status: fixed
+      - file: src/components/Dashboard/MetricsCard.tsx
+        line: 8
+        description: "props: any — should be MetricsCardProps"
+        status: fixed
+      # ... 20 more issues, all fixed
+    progress: "23/23 fixed"
+    parallel: true
+    blocked_by: []
+
+  - name: console-cleanup
+    domain: code-quality
+    metrics: [console-log-count]
+    source_skill: "vercel-labs/agent-skills/nextjs-react-best-practices"
+    status: completed
+    issues:
+      - file: src/lib/api.ts
+        line: 45
+        description: "console.log('response:', data)"
+        status: fixed
+      # ... 17 more issues, all fixed
+    progress: "18/18 fixed"
+    parallel: true
+    blocked_by: []
+
+  - name: useeffect-antipatterns
+    domain: react-patterns
+    metrics: [useeffect-derived-state]
+    source_skill: "vercel-labs/agent-skills/nextjs-react-best-practices"
+    status: completed
+    issues:
+      - file: src/components/Dashboard/FilterBar.tsx
+        line: 23
+        description: "useEffect to compute filtered items — should be useMemo"
+        status: fixed
+      - file: src/components/Settings/ThemePreview.tsx
+        line: 45
+        description: "useEffect to derive CSS class string — trivial, compute inline"
+        status: fixed
+      # ... 3 more, all fixed
+    progress: "5/5 fixed"
+    parallel: true
+    blocked_by: []
+
+  - name: design-tokens
+    domain: ui-quality
+    metrics: [hardcoded-color-values]
+    source_skill: "shadcn/ui/shadcn"
+    status: in_progress
+    issues:
+      - file: src/components/Charts/BarChart.tsx
+        line: 18
+        description: "fill='#3b82f6' — recharts API requires hex, cannot use token"
+        status: wont_fix
+      - file: src/components/Charts/LineChart.tsx
+        line: 22
+        description: "stroke='#10b981' — same recharts limitation"
+        status: wont_fix
+      - file: src/components/Charts/PieChart.tsx
+        line: 15
+        description: "fill='#f59e0b' — same recharts limitation"
+        status: wont_fix
+      - file: src/components/Charts/AreaChart.tsx
+        line: 19
+        description: "fill='#8b5cf6' — same recharts limitation"
+        status: wont_fix
+    progress: "63/67 fixed (4 wont_fix)"
+    parallel: false
+    blocked_by: []
+
+  - name: component-architecture
+    domain: architecture
+    metrics: [oversized-components, prop-heavy-components]
+    source_skill: "vercel-labs/agent-skills/nextjs-react-best-practices"
+    status: in_progress
+    issues:
+      - file: src/pages/DashboardPage.tsx
+        description: "847 lines — split into composition"
+        status: fixed
+      - file: src/pages/AnalyticsPage.tsx
+        description: "523 lines — split into AnalyticsFilters + AnalyticsResults + AnalyticsCharts"
+        status: fixed
+      - file: src/components/DataTable/DataTable.tsx
+        description: "412 lines — split into TableHeader, TableBody, TablePagination"
+        status: fixed
+      - file: src/pages/SettingsPage.tsx
+        description: "312 lines — form state too intertwined for clean split"
+        status: stuck
+      - file: src/components/Sidebar/Sidebar.tsx
+        description: "289 lines — split into SidebarNav, SidebarFooter, SidebarHeader"
+        status: fixed
+      - file: src/components/Dashboard/MetricsGrid.tsx
+        description: "268 lines — extracted from DashboardPage"
+        status: fixed
+      - file: src/pages/UsersPage.tsx
+        description: "305 lines — split into UsersList + UserDetail"
+        status: fixed
+      - file: src/components/Forms/TeamForm.tsx
+        description: "11 props — extracted 4 into TeamFormContext"
+        status: fixed
+    progress: "6/8 fixed (1 stuck)"
+    parallel: false
+    blocked_by: [types-and-strictness]
+
+  - name: accessibility
+    domain: a11y
+    metrics: [accessibility-violations]
+    source_skill: "supercent-io/skills-template/security-best-practices"
+    status: in_progress
+    issues:
+      - file: src/components/Sidebar/NavItem.tsx
+        line: 14
+        description: "Icon button without aria-label (axe: button-name)"
+        status: fixed
+      # ... 22 more fixed, 11 remaining (mostly color contrast)
+    progress: "23/34 fixed"
+    parallel: true
+    blocked_by: []
+
+  - name: visual-polish
+    domain: visual
+    metrics: [visual-spacing-consistency, visual-hierarchy, responsive-breakpoints]
+    source_skill: "pbakaus/impeccable/impeccable"
+    status: in_progress
+    issues:
+      - description: "Sidebar nav 14px gap (not on grid)"
+        status: fixed
+      - description: "Card grid inconsistent gaps"
+        status: fixed
+      - description: "Section heading margins vary"
+        status: fixed
+      - description: "Form label 6px gap"
+        status: fixed
+      - description: "Settings page h2/h3 same size"
+        status: fixed
+      - description: "Cards don't stack properly at 768px"
+        status: fixed
+      - description: "Stat cards internal padding slightly tight"
+        status: pending
+      - description: "Footer alignment at 375px"
+        status: pending
+      - description: "Table horizontal scroll indicator missing at mobile"
+        status: pending
+    progress: "6/9 fixed"
+    parallel: false
+    blocked_by: [design-tokens]
+
+  - name: lighthouse-performance
+    domain: performance
+    metrics: [lighthouse-performance]
+    source_skill: detected
+    status: pending
+    issues:
+      - description: "Low contrast text elements (overlaps with a11y)"
+        status: pending
+      - description: "Unoptimized images (no lazy loading)"
+        status: pending
+      - description: "Large JS bundle (no code splitting)"
+        status: pending
+    progress: "0/3 fixed"
+    parallel: false
+    blocked_by: [accessibility]
+
+execution:
+  parallel_waves:
+    - [types-and-strictness, console-cleanup, useeffect-antipatterns, accessibility]  # wave 1
+    - [design-tokens, component-architecture]  # wave 2
+    - [visual-polish]  # wave 3
+    - [lighthouse-performance]  # wave 4
+  max_parallel_agents: 3
+  re_evaluate_after_groups: 1
