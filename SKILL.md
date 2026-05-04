@@ -821,6 +821,7 @@ Everything lives inside `.adaptive-autoresearch/`:
 ```
 .adaptive-autoresearch/
 ├── fitness.yaml          # fitness profile (metrics, targets, sources)
+├── plan.yaml             # execution plan (groups, ordering, parallelism)
 ├── session.md            # living session document
 ├── session.jsonl         # append-only iteration log
 ├── run-all.sh            # orchestrator
@@ -841,6 +842,18 @@ Living document. Includes:
 - Total issues baseline vs current
 - Key wins and dead ends
 - Next priorities
+- Plan summary and group progress
+
+### `plan.yaml`
+
+Execution plan generated in Phase 8. Contains:
+- Issue groups with file:line locations and status tracking
+- Dependency graph between groups
+- Parallel execution waves
+- Progress counters per group
+
+Updated during re-evaluation checkpoints. A fresh agent reads this to
+understand what work remains and which groups can run next.
 
 ### `metrics/`
 
