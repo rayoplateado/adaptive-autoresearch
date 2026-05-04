@@ -690,29 +690,72 @@ instrumentation in Phase 6).
 
 ---
 
-## Phase 8: The Autonomous Loop
+## Phase 9: The Plan-Driven Loop
 
-Now the agent runs. It does not stop until all targets are met, the
-iteration cap is reached, or the user interrupts.
+The loop executes the plan from Phase 8 instead of picking the weakest
+metric each iteration. It does not stop until all groups are complete,
+the iteration cap is reached, or the user interrupts.
 
-### Each iteration
+### Execution model
 
 ```
-1. ANALYZE    — Read session.md, identify weakest metric
-2. FOCUS      — Load the relevant skill content for that area
-3. PLAN       — Using the skill's strategies, propose a change
-4. IMPLEMENT  — Make the change (max N files per iteration)
-5. VERIFY     — Constraints pass? (tests, build)
-                If fail → revert, log, next iteration
-6. MEASURE    — Execute .adaptive-autoresearch/run-all.sh (deterministic!)
-7. EVALUATE   — Compare numbers to previous iteration:
-                - Target metric improved?
-                - No other metric got worse?
-                If yes → KEEP (git commit)
-                If no  → DISCARD (revert)
-8. JOURNAL    — Append full script output to session.jsonl
-9. REPEAT
+1. READ PLAN     — Load plan.yaml, identify next runnable groups
+2. SPAWN         — Independent groups → parallel subagents (worktree)
+                   Dependent/single groups → run in main context
+3. MINI-LOOP     — Each agent runs within its group:
+                   a. Pick next issue from the group's list
+                   b. FOCUS — Load relevant skill content for the domain
+                   c. IMPLEMENT — Fix the issue
+                   d. VERIFY — Constraints pass? If fail → revert, next issue
+                   e. MEASURE — Run metric scripts
+                   f. EVALUATE — Improved? Keep (commit). Not? Discard (revert)
+                   g. Update task description with progress ("5/12 fixed")
+                   h. JOURNAL — Append to session.jsonl
+                   i. Next issue in group
+4. MERGE         — Subagent done → merge worktree into main
+5. VALIDATE      — Run full run-all.sh on merged state
+                   Regression? → revert merge, retry group sequentially
+                   Clean? → mark group completed, unblock dependents
+6. RE-EVALUATE   — After each merge (or ~10 iterations):
+                   - Re-enumerate remaining issues
+                   - Update task descriptions
+                   - Drop groups now at target
+                   - Flag stuck groups for user attention
+7. NEXT WAVE     — Identify newly unblocked groups, go to step 2
 ```
+
+If the project has only 1-2 issue groups, skip subagent spawning and run
+sequentially in main context — parallelism is opportunistic, not mandatory.
+
+### What each subagent receives
+
+The parent agent spawns subagents using the Agent tool with
+`isolation: worktree`. Each subagent's prompt includes:
+
+- The fitness profile (fitness.yaml) for context
+- The relevant skill content for the group's domain
+- The group's issue list with specific file:line locations
+- The metric scripts needed to validate progress
+- Instructions to commit each kept change as a separate commit
+
+### Subagent constraints
+
+- Must not modify metrics outside its group's scope
+- Must not touch files outside its group's file set (unless the plan
+  explicitly marks shared files)
+- Must not modify fitness.yaml or metric scripts
+- Cannot spawn further subagents (Claude Code does not allow nesting)
+
+### Merge protocol
+
+1. Subagent finishes → parent receives a summary of changes and
+   metric deltas within the group
+2. Parent merges the worktree branch into main
+3. Parent runs `run-all.sh` on the merged state
+4. If any metric regressed vs pre-merge state → revert the merge,
+   log the conflict, queue the group for sequential retry in main context
+5. If clean → accept the merge, update session.jsonl with the group's
+   full results, mark the group task as completed
 
 ### The MEASURE step is sacred
 
@@ -728,10 +771,10 @@ iteration with its own journal entry, and the baseline must be recalculated.
 ### The FOCUS step is key
 
 This is what makes the meta-skill approach work. The agent doesn't try to
-hold all knowledge in context. When the weakest area is "design system",
-it re-reads the shadcn skill and the web-design-guidelines skill. When the
-weakest area is "security", it re-reads the security skill. Just-in-time
-knowledge loading.
+hold all knowledge in context. When working on a security group, it
+re-reads the security skill. When working on a design system group, it
+re-reads the shadcn and web-design-guidelines skills. Just-in-time
+knowledge loading, scoped to the current group's domain.
 
 ### Keep/discard logic
 
@@ -740,6 +783,24 @@ A change is KEPT only if:
 - At least one metric improved (number went toward its target)
 - No other metric got worse
 
+### Re-evaluation checkpoints
+
+After each group merge, after `max_no_improvement` consecutive discards
+within a group, or when the user resumes after an interruption:
+
+1. Run `run-all.sh` to get current state
+2. Re-enumerate issues for remaining groups (some may have auto-resolved)
+3. Update task descriptions with new counts
+4. Mark auto-resolved groups as completed
+5. If new dependencies emerged, adjust group ordering
+6. Flag stuck groups for user attention
+
+Re-evaluation does NOT:
+- Re-discover or re-fetch skills
+- Regenerate metric scripts
+- Change fitness.yaml targets
+- Re-baseline (the original baseline remains the canonical "before")
+
 ### What the agent should NOT do
 
 - Install skills into the project
@@ -747,6 +808,7 @@ A change is KEPT only if:
 - Delete features to improve metrics
 - Game metrics (assert-true tests, hidden elements, ts-ignore)
 - Continue if stuck for max_no_improvement iterations
+- Spawn subagents for groups with file overlap (run sequentially instead)
 
 ---
 
