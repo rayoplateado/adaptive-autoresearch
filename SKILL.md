@@ -874,17 +874,22 @@ run in CI, and reused independently of the agent.
 
 If `.adaptive-autoresearch/session.md` exists:
 
-1. Read it — it has everything: project context, skill sources, metrics,
-   current state, history
+1. Read `session.md` — it has everything: project context, skill sources,
+   metrics, current state, history
 2. Read `session.jsonl` for recent iterations
 3. Read `fitness.yaml` for the full profile
-4. **Run `run-all.sh`** to verify current state matches journal
-5. If numbers match: continue the loop
-6. If numbers diverge: log the discrepancy, re-baseline, then continue
+4. Read `plan.yaml` for the execution plan and group progress
+5. **Run `run-all.sh`** to verify current state matches journal
+6. If numbers match: continue from where the plan left off
+7. If numbers diverge: log the discrepancy, re-baseline, then continue
+8. If groups are `in_progress`: check for orphaned worktree branches
+   (from interrupted subagents). If found, evaluate their changes and
+   either merge or discard before continuing.
 
 Do NOT re-discover, re-fetch, or re-compose unless the user explicitly
 asks to refresh the knowledge sources. Do NOT regenerate scripts unless
-one is broken or the user requests it.
+one is broken or the user requests it. Do NOT re-plan unless the user
+asks — the existing plan.yaml is the source of truth.
 
 ---
 
