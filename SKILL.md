@@ -38,12 +38,14 @@ demand, not hardcoded.
 │  5. COMPOSE    — Build the fitness profile from all sources   │
 │  6. INSTRUMENT — Generate audit scripts, validate them       │
 │  7. BASELINE   — Run scripts on UNCHANGED code = iteration 0 │
-│  8. LOOP       — Change → measure → keep/discard → repeat    │
+│  8. PLAN       — Group issues, order, identify parallelism   │
+│  9. LOOP       — Change → measure → keep/discard → repeat    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 Steps 0-7 happen once, before any code changes.
-Step 8 runs until all targets are met or the user stops it.
+Step 8 creates the execution plan from baseline results.
+Step 9 runs until all targets are met or the user stops it.
 
 ---
 
