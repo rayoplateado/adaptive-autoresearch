@@ -9,8 +9,9 @@ description: >
   Also use when building something new to high standards. The skill has zero
   built-in domain knowledge — it discovers relevant expertise from the
   skills.sh ecosystem at runtime, reads it, extracts quality criteria, and
-  uses it to drive an autonomous keep/discard loop inspired by Karpathy's
-  autoresearch. Works with any stack, any language, any project type.
+  uses it to drive a plan-and-execute loop with parallel subagent support,
+  inspired by Karpathy's autoresearch. Works with any stack, any language,
+  any project type.
 ---
 
 # adaptive-autoresearch
@@ -44,9 +45,9 @@ can run in parallel as subagents for faster execution.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Steps 0-7 happen once, before any code changes.
-Step 8 creates the execution plan from baseline results.
-Step 9 runs until all targets are met or the user stops it.
+Phases 0-7 happen once, before any code changes.
+Phase 8 creates the execution plan from baseline results.
+Phase 9 runs until all targets are met or the user stops it.
 
 ---
 
@@ -722,7 +723,7 @@ the iteration cap is reached, or the user interrupts.
                    - Update task descriptions
                    - Drop groups now at target
                    - Flag stuck groups for user attention
-7. NEXT WAVE     — Identify newly unblocked groups, go to step 2
+7. NEXT WAVE     — Identify newly unblocked groups, go to SPAWN
 ```
 
 If the project has only 1-2 issue groups, skip subagent spawning and run
@@ -814,8 +815,6 @@ Re-evaluation does NOT:
 ---
 
 ## Session Persistence
-
-Two files keep the session alive across context resets:
 
 Everything lives inside `.adaptive-autoresearch/`:
 
