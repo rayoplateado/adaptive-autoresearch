@@ -9,8 +9,9 @@ description: >
   Also use when building something new to high standards. The skill has zero
   built-in domain knowledge — it discovers relevant expertise from the
   skills.sh ecosystem at runtime, reads it, extracts quality criteria, and
-  uses it to drive an autonomous keep/discard loop inspired by Karpathy's
-  autoresearch. Works with any stack, any language, any project type.
+  uses it to drive a plan-and-execute loop with parallel subagent support,
+  inspired by Karpathy's autoresearch. Works with any stack, any language,
+  any project type.
 ---
 
 # adaptive-autoresearch
@@ -19,10 +20,11 @@ An autonomous improvement loop with no built-in opinions. It discovers what
 "excellent" means for YOUR project by reading what the community already
 knows, then iterates until it gets there.
 
-The loop is simple: analyze → plan → change → verify → measure → keep or
-discard → repeat. What makes it powerful is that the quality criteria come
-from the collective knowledge of thousands of community skills, fetched on
-demand, not hardcoded.
+The loop is simple: analyze → plan → group → change → verify → measure →
+keep or discard → repeat. What makes it powerful is that the quality
+criteria come from the collective knowledge of thousands of community
+skills, fetched on demand, not hardcoded — and independent issue groups
+can run in parallel as subagents for faster execution.
 
 ---
 
@@ -38,12 +40,14 @@ demand, not hardcoded.
 │  5. COMPOSE    — Build the fitness profile from all sources   │
 │  6. INSTRUMENT — Generate audit scripts, validate them       │
 │  7. BASELINE   — Run scripts on UNCHANGED code = iteration 0 │
-│  8. LOOP       — Change → measure → keep/discard → repeat    │
+│  8. PLAN       — Group issues, order, identify parallelism   │
+│  9. LOOP       — Change → measure → keep/discard → repeat    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Steps 0-7 happen once, before any code changes.
-Step 8 runs until all targets are met or the user stops it.
+Phases 0-7 happen once, before any code changes.
+Phase 8 creates the execution plan from baseline results.
+Phase 9 runs until all targets are met or the user stops it.
 
 ---
 
@@ -576,29 +580,184 @@ has already changed, the old baseline is invalid — note this in the journal.
 
 ---
 
-## Phase 8: The Autonomous Loop
+## Phase 8: Plan
 
-Now the agent runs. It does not stop until all targets are met, the
-iteration cap is reached, or the user interrupts.
+After the baseline captures metrics, analyze the results and build an
+execution plan before making any code changes. This phase groups issues,
+identifies dependencies, and enables parallel execution.
 
-### Each iteration
+### Step 1: Analyze findings
+
+For each metric above its target, enumerate individual occurrences with
+file:line locations. Use the metric scripts and grep/AST analysis to build
+a concrete list — not estimates, actual locations.
+
+Example: if `typescript-any-count` = 38, list all 38 occurrences with
+file paths and line numbers. If `auth-coverage` = 16, list the 16
+unprotected endpoints.
+
+### Step 2: Group by theme and dependency
+
+Cluster issues into groups based on:
+
+- **Domain affinity** — all auth issues together, all type issues together
+- **File overlap** — issues touching the same files go in the same group
+- **Dependency ordering** — if fixing issue X auto-resolves issue Y
+  (e.g., fixing a base type eliminates downstream `any` casts), they
+  belong in the same group
+
+Aim for 3-8 groups. Fewer than 3 means the project is simple enough to
+not need this phase — skip to the loop. More than 8 means groups are too
+granular — merge related ones.
+
+### Step 3: Order groups
+
+Prioritize by:
+
+1. **Downstream unblocking** — groups whose fixes make other groups cheaper
+2. **User-stated priority** — from the Phase 5 checkpoint
+3. **Issue count** — groups with more issues have more impact
+4. **Source authority** — skills with more installs carry more weight
+
+### Step 4: Identify parallelism
+
+Groups with zero file overlap can run as parallel subagents in worktrees.
+Groups with file overlap must run sequentially. Build a dependency graph:
 
 ```
-1. ANALYZE    — Read session.md, identify weakest metric
-2. FOCUS      — Load the relevant skill content for that area
-3. PLAN       — Using the skill's strategies, propose a change
-4. IMPLEMENT  — Make the change (max N files per iteration)
-5. VERIFY     — Constraints pass? (tests, build)
-                If fail → revert, log, next iteration
-6. MEASURE    — Execute .adaptive-autoresearch/run-all.sh (deterministic!)
-7. EVALUATE   — Compare numbers to previous iteration:
-                - Target metric improved?
-                - No other metric got worse?
-                If yes → KEEP (git commit)
-                If no  → DISCARD (revert)
-8. JOURNAL    — Append full script output to session.jsonl
-9. REPEAT
+group-auth ──┐
+             ├──→ group-query-projections (shares files with both)
+group-types ─┘
 ```
+
+Mark each group as `parallel: true` or `parallel: false` with its
+`blocked_by` list.
+
+### Step 5: Create task list
+
+Create one task per group using TaskCreate. Each task uses two-tier
+tracking:
+
+- **Subject**: group name with issue count (e.g., "Fix auth coverage (12 issues)")
+- **Description**: full issue list with file:line locations
+
+For groups with dependencies, set `addBlockedBy` so blocked groups don't
+start until their prerequisites complete.
+
+### Step 6: Persist the plan
+
+Write `.adaptive-autoresearch/plan.yaml`:
+
+```yaml
+created_at: <timestamp>
+last_evaluated_at: <timestamp>
+
+groups:
+  - name: <group-name>
+    domain: <security|types|performance|...>
+    metric: <metric-name>
+    source_skill: "<skill-identifier>"
+    status: pending  # pending | in_progress | completed | stuck
+    issues:
+      - file: <path>
+        line: <number>
+        description: "<what's wrong>"
+        status: pending  # pending | fixed | wont_fix
+      # ... all issues in this group
+    progress: "0/N fixed"
+    parallel: <true|false>
+    blocked_by: [<group-names>]
+
+execution:
+  parallel_waves:
+    - [<groups that can run simultaneously>]  # wave 1
+    - [<groups that depend on wave 1>]        # wave 2
+    # ...
+  max_parallel_agents: 3
+  re_evaluate_after_groups: 1
+```
+
+### Step 7: Present to user
+
+Show the plan:
+- Groups with their issue counts and ordering
+- Dependency graph (which groups block which)
+- Parallel waves (what runs simultaneously)
+- Estimated total iterations
+
+Ask: "Does this plan look right? Anything to reorder, merge, or split?"
+
+This is the third user checkpoint (after fitness profile in Phase 5 and
+instrumentation in Phase 6).
+
+---
+
+## Phase 9: The Plan-Driven Loop
+
+The loop executes the plan from Phase 8 instead of picking the weakest
+metric each iteration. It does not stop until all groups are complete,
+the iteration cap is reached, or the user interrupts.
+
+### Execution model
+
+```
+1. READ PLAN     — Load plan.yaml, identify next runnable groups
+2. SPAWN         — Independent groups → parallel subagents (worktree)
+                   Dependent/single groups → run in main context
+3. MINI-LOOP     — Each agent runs within its group:
+                   a. Pick next issue from the group's list
+                   b. FOCUS — Load relevant skill content for the domain
+                   c. IMPLEMENT — Fix the issue
+                   d. VERIFY — Constraints pass? If fail → revert, next issue
+                   e. MEASURE — Run metric scripts
+                   f. EVALUATE — Improved? Keep (commit). Not? Discard (revert)
+                   g. Update task description with progress ("5/12 fixed")
+                   h. JOURNAL — Append to session.jsonl
+                   i. Next issue in group
+4. MERGE         — Subagent done → merge worktree into main
+5. VALIDATE      — Run full run-all.sh on merged state
+                   Regression? → revert merge, retry group sequentially
+                   Clean? → mark group completed, unblock dependents
+6. RE-EVALUATE   — After each merge (or ~10 iterations):
+                   - Re-enumerate remaining issues
+                   - Update task descriptions
+                   - Drop groups now at target
+                   - Flag stuck groups for user attention
+7. NEXT WAVE     — Identify newly unblocked groups, go to SPAWN
+```
+
+If the project has only 1-2 issue groups, skip subagent spawning and run
+sequentially in main context — parallelism is opportunistic, not mandatory.
+
+### What each subagent receives
+
+The parent agent spawns subagents using the Agent tool with
+`isolation: worktree`. Each subagent's prompt includes:
+
+- The fitness profile (fitness.yaml) for context
+- The relevant skill content for the group's domain
+- The group's issue list with specific file:line locations
+- The metric scripts needed to validate progress
+- Instructions to commit each kept change as a separate commit
+
+### Subagent constraints
+
+- Must not modify metrics outside its group's scope
+- Must not touch files outside its group's file set (unless the plan
+  explicitly marks shared files)
+- Must not modify fitness.yaml or metric scripts
+- Cannot spawn further subagents (Claude Code does not allow nesting)
+
+### Merge protocol
+
+1. Subagent finishes → parent receives a summary of changes and
+   metric deltas within the group
+2. Parent merges the worktree branch into main
+3. Parent runs `run-all.sh` on the merged state
+4. If any metric regressed vs pre-merge state → revert the merge,
+   log the conflict, queue the group for sequential retry in main context
+5. If clean → accept the merge, update session.jsonl with the group's
+   full results, mark the group task as completed
 
 ### The MEASURE step is sacred
 
@@ -614,10 +773,10 @@ iteration with its own journal entry, and the baseline must be recalculated.
 ### The FOCUS step is key
 
 This is what makes the meta-skill approach work. The agent doesn't try to
-hold all knowledge in context. When the weakest area is "design system",
-it re-reads the shadcn skill and the web-design-guidelines skill. When the
-weakest area is "security", it re-reads the security skill. Just-in-time
-knowledge loading.
+hold all knowledge in context. When working on a security group, it
+re-reads the security skill. When working on a design system group, it
+re-reads the shadcn and web-design-guidelines skills. Just-in-time
+knowledge loading, scoped to the current group's domain.
 
 ### Keep/discard logic
 
@@ -626,6 +785,24 @@ A change is KEPT only if:
 - At least one metric improved (number went toward its target)
 - No other metric got worse
 
+### Re-evaluation checkpoints
+
+After each group merge, after `max_no_improvement` consecutive discards
+within a group, or when the user resumes after an interruption:
+
+1. Run `run-all.sh` to get current state
+2. Re-enumerate issues for remaining groups (some may have auto-resolved)
+3. Update task descriptions with new counts
+4. Mark auto-resolved groups as completed
+5. If new dependencies emerged, adjust group ordering
+6. Flag stuck groups for user attention
+
+Re-evaluation does NOT:
+- Re-discover or re-fetch skills
+- Regenerate metric scripts
+- Change fitness.yaml targets
+- Re-baseline (the original baseline remains the canonical "before")
+
 ### What the agent should NOT do
 
 - Install skills into the project
@@ -633,18 +810,18 @@ A change is KEPT only if:
 - Delete features to improve metrics
 - Game metrics (assert-true tests, hidden elements, ts-ignore)
 - Continue if stuck for max_no_improvement iterations
+- Spawn subagents for groups with file overlap (run sequentially instead)
 
 ---
 
 ## Session Persistence
-
-Two files keep the session alive across context resets:
 
 Everything lives inside `.adaptive-autoresearch/`:
 
 ```
 .adaptive-autoresearch/
 ├── fitness.yaml          # fitness profile (metrics, targets, sources)
+├── plan.yaml             # execution plan (groups, ordering, parallelism)
 ├── session.md            # living session document
 ├── session.jsonl         # append-only iteration log
 ├── run-all.sh            # orchestrator
@@ -665,6 +842,18 @@ Living document. Includes:
 - Total issues baseline vs current
 - Key wins and dead ends
 - Next priorities
+- Plan summary and group progress
+
+### `plan.yaml`
+
+Execution plan generated in Phase 8. Contains:
+- Issue groups with file:line locations and status tracking
+- Dependency graph between groups
+- Parallel execution waves
+- Progress counters per group
+
+Updated during re-evaluation checkpoints. A fresh agent reads this to
+understand what work remains and which groups can run next.
 
 ### `metrics/`
 
@@ -685,17 +874,22 @@ run in CI, and reused independently of the agent.
 
 If `.adaptive-autoresearch/session.md` exists:
 
-1. Read it — it has everything: project context, skill sources, metrics,
-   current state, history
+1. Read `session.md` — it has everything: project context, skill sources,
+   metrics, current state, history
 2. Read `session.jsonl` for recent iterations
 3. Read `fitness.yaml` for the full profile
-4. **Run `run-all.sh`** to verify current state matches journal
-5. If numbers match: continue the loop
-6. If numbers diverge: log the discrepancy, re-baseline, then continue
+4. Read `plan.yaml` for the execution plan and group progress
+5. **Run `run-all.sh`** to verify current state matches journal
+6. If numbers match: continue from where the plan left off
+7. If numbers diverge: log the discrepancy, re-baseline, then continue
+8. If groups are `in_progress`: check for orphaned worktree branches
+   (from interrupted subagents). If found, evaluate their changes and
+   either merge or discard before continuing.
 
 Do NOT re-discover, re-fetch, or re-compose unless the user explicitly
 asks to refresh the knowledge sources. Do NOT regenerate scripts unless
-one is broken or the user requests it.
+one is broken or the user requests it. Do NOT re-plan unless the user
+asks — the existing plan.yaml is the source of truth.
 
 ---
 
@@ -710,8 +904,20 @@ Show:
 - Current gaps
 - "Does this look right?"
 
+### After planning (Phase 8)
+
+Show:
+- Issue groups with counts and ordering
+- Dependency graph (which groups block which)
+- Parallel waves (what runs simultaneously)
+- Estimated total iterations
+- "Does this plan look right? Anything to reorder, merge, or split?"
+
 ### During the loop
 
+- Group completion notifications ("auth-coverage: 12/12 fixed, merging")
+- Parallel wave progress ("Wave 1: 2/3 groups done")
+- Merge success/failure notifications
 - Status table every 5 iterations
 - Immediate notification on significant wins
 - Notification when a metric crosses its target
