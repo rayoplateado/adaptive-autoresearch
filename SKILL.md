@@ -578,6 +578,118 @@ has already changed, the old baseline is invalid — note this in the journal.
 
 ---
 
+## Phase 8: Plan
+
+After the baseline captures metrics, analyze the results and build an
+execution plan before making any code changes. This phase groups issues,
+identifies dependencies, and enables parallel execution.
+
+### Step 1: Analyze findings
+
+For each metric above its target, enumerate individual occurrences with
+file:line locations. Use the metric scripts and grep/AST analysis to build
+a concrete list — not estimates, actual locations.
+
+Example: if `typescript-any-count` = 38, list all 38 occurrences with
+file paths and line numbers. If `auth-coverage` = 16, list the 16
+unprotected endpoints.
+
+### Step 2: Group by theme and dependency
+
+Cluster issues into groups based on:
+
+- **Domain affinity** — all auth issues together, all type issues together
+- **File overlap** — issues touching the same files go in the same group
+- **Dependency ordering** — if fixing issue X auto-resolves issue Y
+  (e.g., fixing a base type eliminates downstream `any` casts), they
+  belong in the same group
+
+Aim for 3-8 groups. Fewer than 3 means the project is simple enough to
+not need this phase — skip to the loop. More than 8 means groups are too
+granular — merge related ones.
+
+### Step 3: Order groups
+
+Prioritize by:
+
+1. **Downstream unblocking** — groups whose fixes make other groups cheaper
+2. **User-stated priority** — from the Phase 5 checkpoint
+3. **Issue count** — groups with more issues have more impact
+4. **Source authority** — skills with more installs carry more weight
+
+### Step 4: Identify parallelism
+
+Groups with zero file overlap can run as parallel subagents in worktrees.
+Groups with file overlap must run sequentially. Build a dependency graph:
+
+```
+group-auth ──┐
+             ├──→ group-query-projections (shares files with both)
+group-types ─┘
+```
+
+Mark each group as `parallel: true` or `parallel: false` with its
+`blocked_by` list.
+
+### Step 5: Create task list
+
+Create one task per group using TaskCreate. Each task uses two-tier
+tracking:
+
+- **Subject**: group name with issue count (e.g., "Fix auth coverage (12 issues)")
+- **Description**: full issue list with file:line locations
+
+For groups with dependencies, set `addBlockedBy` so blocked groups don't
+start until their prerequisites complete.
+
+### Step 6: Persist the plan
+
+Write `.adaptive-autoresearch/plan.yaml`:
+
+```yaml
+created_at: <timestamp>
+last_evaluated_at: <timestamp>
+
+groups:
+  - name: <group-name>
+    domain: <security|types|performance|...>
+    metric: <metric-name>
+    source_skill: "<skill-identifier>"
+    status: pending  # pending | in_progress | completed | stuck
+    issues:
+      - file: <path>
+        line: <number>
+        description: "<what's wrong>"
+        status: pending  # pending | fixed | wont_fix
+      # ... all issues in this group
+    progress: "0/N fixed"
+    parallel: <true|false>
+    blocked_by: [<group-names>]
+
+execution:
+  parallel_waves:
+    - [<groups that can run simultaneously>]  # wave 1
+    - [<groups that depend on wave 1>]        # wave 2
+    # ...
+  max_parallel_agents: 3
+  re_evaluate_after_groups: 1
+```
+
+### Step 7: Present to user
+
+Show the plan:
+- Groups with their issue counts and ordering
+- Dependency graph (which groups block which)
+- Parallel waves (what runs simultaneously)
+- Estimated total iterations
+
+Ask: "Does this plan look right? Anything to reorder, merge, or split?"
+
+This is the third user checkpoint (after fitness profile in Phase 5 and
+instrumentation in Phase 6).
+
+---
+
 ## Phase 8: The Autonomous Loop
 
 Now the agent runs. It does not stop until all targets are met, the
