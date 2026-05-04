@@ -904,8 +904,20 @@ Show:
 - Current gaps
 - "Does this look right?"
 
+### After planning (Phase 8)
+
+Show:
+- Issue groups with counts and ordering
+- Dependency graph (which groups block which)
+- Parallel waves (what runs simultaneously)
+- Estimated total iterations
+- "Does this plan look right? Anything to reorder, merge, or split?"
+
 ### During the loop
 
+- Group completion notifications ("auth-coverage: 12/12 fixed, merging")
+- Parallel wave progress ("Wave 1: 2/3 groups done")
+- Merge success/failure notifications
 - Status table every 5 iterations
 - Immediate notification on significant wins
 - Notification when a metric crosses its target
