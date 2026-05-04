@@ -19,10 +19,11 @@ An autonomous improvement loop with no built-in opinions. It discovers what
 "excellent" means for YOUR project by reading what the community already
 knows, then iterates until it gets there.
 
-The loop is simple: analyze → plan → change → verify → measure → keep or
-discard → repeat. What makes it powerful is that the quality criteria come
-from the collective knowledge of thousands of community skills, fetched on
-demand, not hardcoded.
+The loop is simple: analyze → plan → group → change → verify → measure →
+keep or discard → repeat. What makes it powerful is that the quality
+criteria come from the collective knowledge of thousands of community
+skills, fetched on demand, not hardcoded — and independent issue groups
+can run in parallel as subagents for faster execution.
 
 ---
 
