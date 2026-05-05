@@ -632,6 +632,14 @@ echo ""
 echo "}"
 ```
 
+### Script safety review
+
+Before executing any generated script for the first time, run Gate 2
+(Script Safety Review) from the Safety Layer section. Scripts the user
+rejects become `manual: true` metrics in the fitness profile — they are
+still tracked but not automatically measured. Scripts the user approves
+are checksummed in `safety.yaml` and not re-reviewed unless modified.
+
 ### Directory structure
 
 ```
