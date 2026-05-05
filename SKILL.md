@@ -645,6 +645,7 @@ are checksummed in `safety.yaml` and not re-reviewed unless modified.
 ```
 .adaptive-autoresearch/
 ├── fitness.yaml          # fitness profile (metrics, targets, sources)
+├── safety.yaml           # trust thresholds, script blocklist, overrides
 ├── session.md            # living session document
 ├── session.jsonl         # append-only iteration log
 ├── run-all.sh            # orchestrator — runs all metrics, outputs JSON
@@ -957,6 +958,7 @@ Everything lives inside `.adaptive-autoresearch/`:
 ```
 .adaptive-autoresearch/
 ├── fitness.yaml          # fitness profile (metrics, targets, sources)
+├── safety.yaml           # trust thresholds, script blocklist, overrides
 ├── plan.yaml             # execution plan (groups, ordering, parallelism)
 ├── session.md            # living session document
 ├── session.jsonl         # append-only iteration log
