@@ -76,6 +76,7 @@ After a session, your project has:
 | `.adaptive-autoresearch/metrics/` | Deterministic scripts measuring each quality metric |
 | `.adaptive-autoresearch/run-all.sh` | Runs all metrics, outputs JSON |
 | `.adaptive-autoresearch/fitness.yaml` | The fitness profile (metrics, targets, sources) |
+| `.adaptive-autoresearch/safety.yaml` | Trust config, script blocklist, approved overrides |
 | `.adaptive-autoresearch/session.md` | Living session document with current state |
 | `.adaptive-autoresearch/session.jsonl` | Append-only log of every iteration |
 
