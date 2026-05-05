@@ -319,6 +319,13 @@ Fetch only the SKILL.md — it contains the core knowledge. If the skill
 references files in `references/` that seem critical, fetch those too, but
 be selective. Most of the value is in the SKILL.md itself.
 
+### Trust validation
+
+Before reading a fetched skill's SKILL.md content, run Gate 1 (Skill Trust
+Validation) from the Safety Layer section. If the user rejects a skill,
+skip it entirely and note the coverage gap in session.md. Do not extract
+criteria from rejected skills.
+
 ### Context management
 
 Don't dump all skills into context at once. Keep them in working memory
