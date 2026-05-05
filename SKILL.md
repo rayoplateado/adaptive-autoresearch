@@ -182,6 +182,11 @@ Before starting, verify:
 3. **Build and tests pass** — verify before measuring anything.
    If they don't pass, fix them first (this is iteration -1, not the loop).
 
+4. **`safety.yaml` exists** — if `.adaptive-autoresearch/safety.yaml` does
+   not exist, generate it with the defaults defined in the Safety Layer
+   section above. If it exists, load it and respect its configuration
+   throughout the session.
+
 ---
 
 ## Phase 1: Detect
