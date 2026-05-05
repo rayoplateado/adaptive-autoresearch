@@ -51,6 +51,122 @@ Phase 9 runs until all targets are met or the user stops it.
 
 ---
 
+## Safety Layer
+
+A cross-cutting safety system that validates skills and scripts before they
+can influence code changes or execute on your machine. On by default.
+
+### Configuration: `.adaptive-autoresearch/safety.yaml`
+
+Generated automatically in Phase 0 with these defaults:
+
+```yaml
+# .adaptive-autoresearch/safety.yaml
+enabled: true
+
+trust:
+  # Skills below BOTH thresholds trigger a user warning
+  min_installs: 5000
+  min_age_days: 30
+
+scripts:
+  # Patterns that flag a generated metric script for user review
+  blocked_patterns:
+    - rm\b
+    - curl\b
+    - wget\b
+    - eval\b
+    - exec\b
+    - ">>"
+    - ">"
+    - sudo\b
+    - chmod\b
+    - kill\b
+    - mkfifo\b
+    - nc\b
+    - python.*-c.*open\(.*,\s*['"]w
+  # Writes to these paths are allowed and don't trigger warnings
+  allowed_write_paths:
+    - .adaptive-autoresearch/
+    - /tmp/
+
+overrides:
+  # Populated by user approvals during the run
+  approved_skills: []
+  approved_scripts: []
+```
+
+Trust thresholds use AND — both must be below to trigger a warning.
+Blocked patterns are regexes applied line-by-line to generated scripts.
+Approved scripts are tracked by checksum — re-flagged if content changes.
+
+### Gate 1: Skill Trust Validation
+
+Applied in Phase 3 (Fetch), before reading a skill's SKILL.md content.
+
+For each discovered skill:
+
+1. Collect: publisher, install count, publish date (or first commit date)
+2. Check against `trust.min_installs` AND `trust.min_age_days`
+3. Meets thresholds → proceed silently, log `trust: auto`
+4. Below thresholds → warn the user:
+
+```
+⚠ Low-trust skill detected:
+  Name: some-user/obscure-repo/security-tips
+  Installs: 320
+  Age: 12 days
+
+  Use this skill? [y/n/details]
+```
+
+5. "details" shows the first 20 lines of the SKILL.md
+6. User approves → add to `overrides.approved_skills`, proceed
+7. User rejects → skip this skill, note gap in session.md
+
+No hard blocks. Every skill can be approved by the user.
+
+### Gate 2: Script Safety Review
+
+Applied in Phase 6 (Instrument), after generating each metric script but
+before first execution.
+
+For each generated script:
+
+1. Read line by line, match against `scripts.blocked_patterns`
+2. Exclude matches targeting paths in `allowed_write_paths`
+3. No matches → proceed, mark `review: clean`
+4. Matches found → show the user:
+
+```
+⚠ Script review: metric-api-response-check.sh
+  Line 7: curl -s "$ENDPOINT" | jq '.status'
+  Line 12: echo "$result" > /tmp/api-check.txt
+
+  Matched patterns: curl, >
+
+  Approve this script? [y/n/edit]
+```
+
+5. User approves → add to `overrides.approved_scripts` with checksum
+6. User rejects → mark metric as `manual: true`, skip automation
+7. User chooses "edit" → re-run safety check on edited version
+
+Runs once per script. Not re-flagged unless checksum changes.
+
+### Non-interactive fallback
+
+If the agent cannot prompt the user (CI, background mode), below-threshold
+skills and flagged scripts are rejected by default. Only auto-approved
+content runs. Better to have reduced coverage than unreviewed execution.
+
+### Overrides are shareable
+
+Since `safety.yaml` lives in `.adaptive-autoresearch/`, it can be committed.
+Team members share trust decisions — one approval benefits everyone.
+
+---
+
 ## Phase 0: Prerequisites
 
 Before starting, verify:
@@ -65,6 +181,11 @@ Before starting, verify:
 
 3. **Build and tests pass** — verify before measuring anything.
    If they don't pass, fix them first (this is iteration -1, not the loop).
+
+4. **`safety.yaml` exists** — if `.adaptive-autoresearch/safety.yaml` does
+   not exist, generate it with the defaults defined in the Safety Layer
+   section above. If it exists, load it and respect its configuration
+   throughout the session.
 
 ---
 
@@ -197,6 +318,13 @@ paths when available; fall back to GitHub raw URLs for remote-only skills.
 Fetch only the SKILL.md — it contains the core knowledge. If the skill
 references files in `references/` that seem critical, fetch those too, but
 be selective. Most of the value is in the SKILL.md itself.
+
+### Trust validation
+
+Before reading a fetched skill's SKILL.md content, run Gate 1 (Skill Trust
+Validation) from the Safety Layer section. If the user rejects a skill,
+skip it entirely and note the coverage gap in session.md. Do not extract
+criteria from rejected skills.
 
 ### Context management
 
@@ -504,11 +632,20 @@ echo ""
 echo "}"
 ```
 
+### Script safety review
+
+Before executing any generated script for the first time, run Gate 2
+(Script Safety Review) from the Safety Layer section. Scripts the user
+rejects become `manual: true` metrics in the fitness profile — they are
+still tracked but not automatically measured. Scripts the user approves
+are checksummed in `safety.yaml` and not re-reviewed unless modified.
+
 ### Directory structure
 
 ```
 .adaptive-autoresearch/
 ├── fitness.yaml          # fitness profile (metrics, targets, sources)
+├── safety.yaml           # trust thresholds, script blocklist, overrides
 ├── session.md            # living session document
 ├── session.jsonl         # append-only iteration log
 ├── run-all.sh            # orchestrator — runs all metrics, outputs JSON
@@ -821,6 +958,7 @@ Everything lives inside `.adaptive-autoresearch/`:
 ```
 .adaptive-autoresearch/
 ├── fitness.yaml          # fitness profile (metrics, targets, sources)
+├── safety.yaml           # trust thresholds, script blocklist, overrides
 ├── plan.yaml             # execution plan (groups, ordering, parallelism)
 ├── session.md            # living session document
 ├── session.jsonl         # append-only iteration log
@@ -879,10 +1017,12 @@ If `.adaptive-autoresearch/session.md` exists:
 2. Read `session.jsonl` for recent iterations
 3. Read `fitness.yaml` for the full profile
 4. Read `plan.yaml` for the execution plan and group progress
-5. **Run `run-all.sh`** to verify current state matches journal
-6. If numbers match: continue from where the plan left off
-7. If numbers diverge: log the discrepancy, re-baseline, then continue
-8. If groups are `in_progress`: check for orphaned worktree branches
+5. Read `safety.yaml` for trust overrides (skip re-prompting for
+   previously approved skills and scripts)
+6. **Run `run-all.sh`** to verify current state matches journal
+7. If numbers match: continue from where the plan left off
+8. If numbers diverge: log the discrepancy, re-baseline, then continue
+9. If groups are `in_progress`: check for orphaned worktree branches
    (from interrupted subagents). If found, evaluate their changes and
    either merge or discard before continuing.
 
