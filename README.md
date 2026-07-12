@@ -34,6 +34,18 @@ Steps 0–7 happen once, before any code changes. Step 8 runs until all targets 
 bash .adaptive-autoresearch/run-all.sh
 ```
 
+**Five metric types, zero manual gates.** The loop runs autonomously — no metric requires a human in the loop:
+
+| Type | How it works | Example |
+|---|---|---|
+| **Direct** | Script counts exactly what you want | `grep ": any"`, `tsc --noEmit \| wc -l` |
+| **Proxy** | Script counts something that correlates | Files >300 LOC (proxy for component cohesion) |
+| **Tool-backed visual** | Deterministic tool on screenshots/URLs | axe-core, Lighthouse, pixelmatch |
+| **Visual** | Screenshot + LLM vision with rubric | Spacing consistency, visual hierarchy |
+| **Semi-scriptable** | Script with documented false positives | N+1 query patterns |
+
+Visual metrics use screenshots + structured rubrics so the agent can evaluate UI quality without a human. Tool-backed visuals (axe-core, Lighthouse, pixelmatch) are fully deterministic. LLM-judged visuals use a ±1 tolerance to handle scoring noise.
+
 **Honest scoring.** No invented composite scores. Raw issue counts, before and after:
 
 ```
